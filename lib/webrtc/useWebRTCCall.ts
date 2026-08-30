@@ -164,15 +164,23 @@ export function useWebRTCCall(myUserId: string | null) {
       }
 
       callId = row.id;
+      // `callId` acima fica com o tipo string|null aos olhos do TypeScript
+      // a partir daqui, porque é capturado pelos closures abaixo (o
+      // compilador não consegue provar que não é reatribuído entretanto).
+      // `confirmedCallId` fixa o tipo string para o resto da função.
+      const confirmedCallId: string = row.id;
+
       for (const cand of pending) {
-        await supabase.from("ice_candidates").insert({ call_id: callId, role: "caller", candidate: cand });
+        await supabase
+          .from("ice_candidates")
+          .insert({ call_id: confirmedCallId, role: "caller", candidate: cand });
       }
 
       callChannelRef.current = supabase
-        .channel("call-" + callId)
+        .channel("call-" + confirmedCallId)
         .on(
           "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "calls", filter: "id=eq." + callId },
+          { event: "UPDATE", schema: "public", table: "calls", filter: "id=eq." + confirmedCallId },
           async (payload) => {
             const updated = payload.new as any;
             if (updated.status === "rejected") {
@@ -194,10 +202,10 @@ export function useWebRTCCall(myUserId: string | null) {
         .subscribe();
 
       iceChannelRef.current = supabase
-        .channel("ice-" + callId + "-caller")
+        .channel("ice-" + confirmedCallId + "-caller")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + callId },
+          { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + confirmedCallId },
           (payload) => {
             const cand = payload.new as any;
             if (cand.role === "callee") {
@@ -207,8 +215,8 @@ export function useWebRTCCall(myUserId: string | null) {
         )
         .subscribe();
 
-      attachConnectionWatchers(pc, callId);
-      return callId;
+      attachConnectionWatchers(pc, confirmedCallId);
+      return confirmedCallId;
     },
     [myUserId, cleanup]
   );
