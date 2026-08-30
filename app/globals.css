@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-stone-50 text-ink-900 font-sans min-h-screen;
+  }
+  h1, h2, h3 {
+    @apply font-display font-medium text-emerald-950;
+  }
+  *:focus-visible {
+    outline: 2px solid theme("colors.gold.500");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white border border-gold-500/30 p-9 shadow-[0_20px_50px_-30px_rgba(10,46,43,0.4)] w-full max-w-[480px];
+  }
+  .eyebrow {
+    @apply font-mono text-[0.72rem] uppercase tracking-[0.12em] text-maroon-600 flex items-center gap-2 mb-4;
+  }
+  .dot {
+    @apply w-1.5 h-1.5 rounded-full bg-current animate-pulse;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 py-3 px-5 w-full border-0 text-[0.92rem] font-semibold tracking-wide mt-6 transition-colors;
+  }
+  .btn-primary {
+    @apply bg-emerald-900 text-stone-50 hover:bg-emerald-800;
+  }
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+  .btn-danger {
+    @apply bg-maroon-600 text-white hover:bg-[#733030];
+  }
+  .btn-gold {
+    @apply bg-gold-500 text-emerald-950 hover:bg-gold-300;
+  }
+  .btn-ghost {
+    @apply bg-transparent border border-gold-500/30 text-emerald-900;
+  }
+  .input-field {
+    @apply w-full py-3 px-3.5 border border-gold-500/30 bg-stone-50 text-[0.95rem] text-ink-900 focus:bg-white focus:border-gold-500;
+  }
+  .field-label {
+    @apply block text-[0.78rem] uppercase tracking-wide text-[#6b6b5f] mb-1.5 mt-4 first:mt-0;
+  }
+  .avatar {
+    @apply w-9 h-9 rounded-full bg-gradient-to-br from-gold-500 to-emerald-700 flex items-center justify-center font-display font-semibold text-emerald-950 text-[0.95rem];
+  }
+  .hint {
+    @apply text-[#8a8a7d] text-[0.78rem] mt-3.5 leading-relaxed;
+  }
+  .err {
+    @apply text-maroon-600 text-[0.82rem] mt-2 min-h-[1em];
+  }
+}
