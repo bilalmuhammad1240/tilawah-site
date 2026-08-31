@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Newsreader, Work_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import CallListener from "@/components/CallListener";
 
 const newsreader = Newsreader({
   subsets: ["latin"],
@@ -40,6 +41,7 @@ export default function RootLayout({
         <div id="app" className="w-full flex justify-center">
           {children}
         </div>
+        <CallListener />
       </body>
     </html>
   );

@@ -212,6 +212,10 @@ create policy "notifications: só o destinatário vê"
   on notifications for select
   using (auth.uid() = user_id);
 
+create policy "notifications: qualquer utilizador autenticado pode criar (para avisar outro participante)"
+  on notifications for insert
+  with check (auth.uid() is not null);
+
 create policy "notifications: só o destinatário marca como lida"
   on notifications for update
   using (auth.uid() = user_id);
@@ -299,3 +303,46 @@ create policy "ice_candidates: participantes da chamada inserem"
 -- Nota: ativar "Realtime" nas tabelas calls e ice_candidates no
 -- painel do Supabase (Database → Replication) para os postgres_changes
 -- funcionarem, tal como no protótipo.
+
+-- ============================================================
+-- Criação automática de perfil no signup
+-- ============================================================
+-- Se a confirmação de email estiver ativa no projeto, signUp() não
+-- devolve sessão imediata — um insert feito pelo browser logo a
+-- seguir corre sem auth.uid(), e a RLS bloqueia-o. Este trigger
+-- corre no servidor (security definer), por isso não depende de
+-- haver sessão no cliente: lê o nome/papel/tarifa dos metadados
+-- passados em supabase.auth.signUp({ options: { data: {...} } }).
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, name, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'name', 'Utilizador'),
+    coalesce(new.raw_user_meta_data->>'role', 'aluno')
+  )
+  on conflict (id) do nothing;
+
+  if coalesce(new.raw_user_meta_data->>'role', 'aluno') = 'qari' then
+    insert into public.qari_profiles (id, rate_per_minute, specialties)
+    values (new.id, coalesce((new.raw_user_meta_data->>'rate')::numeric, 0), '{}')
+    on conflict (id) do nothing;
+
+    insert into public.qari_presence (qari_id, is_available)
+    values (new.id, false)
+    on conflict (qari_id) do nothing;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();

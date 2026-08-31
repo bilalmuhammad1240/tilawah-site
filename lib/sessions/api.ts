@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { createNotification } from "@/lib/notifications/api";
 
 export type RecitationSession = {
   id: string;
@@ -13,7 +14,8 @@ export type RecitationSession = {
   total_cost: number | null;
 };
 
-// O aluno pede uma sessão a um Qari (etapa 5 do fluxo do aluno).
+// O aluno pede uma sessão a um Qari (etapa 5 do fluxo do aluno) —
+// fica à espera de aceitação antes de a chamada começar.
 export async function requestSession(params: {
   qariId: string;
   surahNumber?: number;
@@ -27,7 +29,7 @@ export async function requestSession(params: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Precisa de iniciar sessão para pedir uma recitação.");
 
-  return supabase
+  const result = await supabase
     .from("recitation_sessions")
     .insert({
       student_id: user.id,
@@ -40,19 +42,70 @@ export async function requestSession(params: {
     })
     .select()
     .single();
+
+  if (result.data) {
+    await createNotification(params.qariId, "session_requested", "Novo pedido de recitação.", result.data.id);
+  }
+  return result;
+}
+
+// Chamada direta: o Qari já está disponível, por isso salta-se o passo
+// de pedido/aceitação — a sessão nasce já "accepted" e a chamada começa
+// de imediato (é o próprio atender que confirma a aceitação).
+export async function startDirectCall(params: { qariId: string; ratePerMinute: number }) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Precisa de iniciar sessão para ligar.");
+
+  const result = await supabase
+    .from("recitation_sessions")
+    .insert({
+      student_id: user.id,
+      qari_id: params.qariId,
+      rate_per_minute: params.ratePerMinute,
+      status: "accepted",
+      started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (result.data) {
+    await createNotification(params.qariId, "incoming_call", "Chamada a receber.", result.data.id);
+  }
+  return result;
 }
 
 export async function acceptSession(sessionId: string) {
   const supabase = createClient();
-  return supabase
+  const { data: session } = await supabase
+    .from("recitation_sessions")
+    .select("student_id")
+    .eq("id", sessionId)
+    .single();
+  const result = await supabase
     .from("recitation_sessions")
     .update({ status: "accepted", started_at: new Date().toISOString() })
     .eq("id", sessionId);
+  if (session) {
+    await createNotification(session.student_id, "session_accepted", "O Qari aceitou o seu pedido.", sessionId);
+  }
+  return result;
 }
 
 export async function rejectSession(sessionId: string) {
   const supabase = createClient();
-  return supabase.from("recitation_sessions").update({ status: "rejected" }).eq("id", sessionId);
+  const { data: session } = await supabase
+    .from("recitation_sessions")
+    .select("student_id")
+    .eq("id", sessionId)
+    .single();
+  const result = await supabase.from("recitation_sessions").update({ status: "rejected" }).eq("id", sessionId);
+  if (session) {
+    await createNotification(session.student_id, "session_rejected", "O Qari não pôde aceitar este pedido.", sessionId);
+  }
+  return result;
 }
 
 // O custo final é apenas indicativo aqui — o plano (secção 11) exige

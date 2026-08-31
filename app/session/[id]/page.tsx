@@ -8,6 +8,7 @@ import { useWebRTCCall } from "@/lib/webrtc/useWebRTCCall";
 import AudioCall from "@/components/AudioCall";
 import FeedbackForm from "@/components/FeedbackForm";
 import { acceptSession, rejectSession, endSession } from "@/lib/sessions/api";
+import { createNotification } from "@/lib/notifications/api";
 
 type SessionRow = {
   id: string;
@@ -73,6 +74,23 @@ export default function SessionPage({ params }: { params: { id: string } }) {
     if (!profile || !session) return;
     const isQari = profile.id === session.qari_id;
     if (!isQari) return;
+
+    // Se a chamada já existir (ex.: o CallListener global já trouxe o
+    // utilizador até aqui depois de detetar o INSERT), a subscrição
+    // abaixo não a vai apanhar — só reage a inserções futuras.
+    supabase
+      .from("calls")
+      .select("*")
+      .eq("session_id", session.id)
+      .eq("callee_id", profile.id)
+      .eq("status", "ringing")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) setIncomingCall(data);
+      });
+
     const channel = supabase
       .channel("incoming-for-session-" + session.id)
       .on(
@@ -112,6 +130,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   }
   async function handleRejectIncomingCall() {
     await webrtc.rejectCall(incomingCall.id);
+    await rejectSession(session!.id);
     setIncomingCall(null);
   }
 
@@ -144,6 +163,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
       recommendation: data.recommendation,
     });
     setSavingFeedback(false);
+    await createNotification(session!.student_id, "feedback_received", "Recebeu feedback da sua recitação.", session!.id);
     router.push("/history");
   }
 

@@ -17,9 +17,11 @@ function fmtMoney(v: number) {
 export default function QariCard({
   qari,
   onRequest,
+  onCallNow,
 }: {
   qari: QariListItem;
   onRequest: (qari: QariListItem) => void;
+  onCallNow: (qari: QariListItem) => void;
 }) {
   return (
     <div className="bg-white p-4 flex items-center justify-between gap-3 border-b border-gold-500/20 last:border-b-0">
@@ -38,13 +40,18 @@ export default function QariCard({
           </div>
         </div>
       </div>
-      <button
-        className="btn btn-primary !w-auto !mt-0 py-2 px-4 text-[0.78rem]"
-        disabled={!qari.isAvailable}
-        onClick={() => onRequest(qari)}
-      >
-        {qari.isAvailable ? "Pedir sessão" : "Indisponível"}
-      </button>
+      <div className="flex flex-col gap-1.5 flex-shrink-0">
+        <button
+          className="btn btn-gold !w-auto !mt-0 py-2 px-4 text-[0.78rem]"
+          disabled={!qari.isAvailable}
+          onClick={() => onCallNow(qari)}
+        >
+          {qari.isAvailable ? "Ligar agora" : "Indisponível"}
+        </button>
+        <button className="btn btn-ghost !w-auto !mt-0 py-1.5 px-4 text-[0.72rem]" onClick={() => onRequest(qari)}>
+          Pedir sessão
+        </button>
+      </div>
     </div>
   );
 }

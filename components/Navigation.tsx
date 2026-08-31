@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/auth/useUser";
+import NotificationBell from "./NotificationBell";
 
 const LINKS = [
   { href: "/dashboard", label: "Início" },
@@ -39,9 +40,12 @@ export default function Navigation({ profile }: { profile: Profile }) {
           </Link>
         ))}
       </div>
-      <button onClick={logout} className="text-[0.78rem] text-[#8a8a7d] underline">
-        Sair
-      </button>
+      <div className="flex items-center gap-4">
+        <NotificationBell userId={profile.id} />
+        <button onClick={logout} className="text-[0.78rem] text-[#8a8a7d] underline">
+          Sair
+        </button>
+      </div>
     </div>
   );
 }

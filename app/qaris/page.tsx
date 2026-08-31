@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import Navigation from "@/components/Navigation";
 import QariCard, { type QariListItem } from "@/components/QariCard";
 import SessionRequest from "@/components/SessionRequest";
-import { requestSession } from "@/lib/sessions/api";
+import { requestSession, startDirectCall } from "@/lib/sessions/api";
 
 export default function QarisPage() {
   const { profile, loading } = useUser();
@@ -46,6 +46,19 @@ export default function QarisPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleCallNow(qari: QariListItem) {
+    setError("");
+    const { data: session, error: callError } = await startDirectCall({
+      qariId: qari.id,
+      ratePerMinute: qari.ratePerMinute,
+    });
+    if (callError || !session) {
+      setError("Não foi possível ligar agora. Tente novamente.");
+      return;
+    }
+    router.push(`/session/${session.id}`);
+  }
 
   async function handleRequest(data: { surahNumber?: number; ayahStart?: number; ayahEnd?: number }) {
     if (!selected) return;
@@ -97,7 +110,7 @@ export default function QarisPage() {
       ) : (
         <div className="border border-gold-500/20">
           {qaris.map((q) => (
-            <QariCard key={q.id} qari={q} onRequest={setSelected} />
+            <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={handleCallNow} />
           ))}
         </div>
       )}
