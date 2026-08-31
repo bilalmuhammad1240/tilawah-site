@@ -36,28 +36,23 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { name: name.trim(), role, rate: parsedRate },
+      },
+    });
     if (signUpError || !data.user) {
       setError(signUpError?.message || "Não foi possível criar a conta.");
       setLoading(false);
       return;
     }
 
-    const userId = data.user.id;
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .insert({ id: userId, name: name.trim(), role });
-    if (profileError) {
-      setError("Conta criada, mas houve um erro a criar o perfil: " + profileError.message);
-      setLoading(false);
-      return;
-    }
-
-    if (role === "qari") {
-      await supabase.from("qari_profiles").insert({ id: userId, rate_per_minute: parsedRate, specialties: [] });
-      await supabase.from("qari_presence").insert({ qari_id: userId, is_available: false });
-    }
+    // O perfil (e qari_profiles/qari_presence, se aplicável) é criado
+    // automaticamente no servidor por um trigger em auth.users — ver
+    // database/schema.sql. Isto evita depender de uma sessão de cliente
+    // que pode não existir ainda se a confirmação de email estiver ativa.
 
     setLoading(false);
     // Nota: se a confirmação de email estiver ativa no projeto Supabase,
