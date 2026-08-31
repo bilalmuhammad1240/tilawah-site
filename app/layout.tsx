@@ -36,9 +36,9 @@ export default function RootLayout({
   return (
     <html lang="pt">
       <body
-        className={`${newsreader.variable} ${workSans.variable} ${ibmPlexMono.variable}`}
+        className={`${newsreader.variable} ${workSans.variable} ${ibmPlexMono.variable} flex items-center justify-center p-6`}
       >
-        <div id="app" className="w-full min-h-screen">
+        <div id="app" className="w-full flex justify-center">
           {children}
         </div>
         <CallListener />

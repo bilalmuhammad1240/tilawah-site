@@ -92,26 +92,28 @@ export default function QarisPage() {
   }
 
   return (
-    <div className="app-shell min-h-screen">
-      <div className="top-hero">
-        <div className="page-wrap">
+    <div className="card">
       <Navigation profile={profile} />
-      <div className="pt-4 pb-10">
-        <div className="mb-2 text-sm font-medium text-white/80"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-[#83ad63]" />{qaris.filter((q) => q.isAvailable).length} Qaris disponíveis agora</div>
-        <h1 className="font-[var(--font-newsreader)] text-4xl tracking-tight">Encontre quem vai ouvir a sua recitação.</h1>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-white/75">Escolha um Qari disponível e comece uma sessão quando tiver tempo. Recite, receba correções e melhore sempre.</p>
+      <div className="eyebrow">
+        <span className="dot" /> {qaris.filter((q) => q.isAvailable).length} disponíveis agora
       </div>
-    </div></div>
-    <main className="page-wrap -mt-5 relative z-20 pb-28 md:pb-10">
-      <section className="content-card overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#ece9df] px-5 py-4">
-          <div><h2 className="section-title">Qaris disponíveis</h2><p className="mt-1 text-xs text-[#858c86]">Escolha um profissional para ouvir a sua recitação.</p></div>
-          <div className="rounded-full bg-[#edf4ec] px-3 py-1.5 text-xs font-semibold text-[#286256]">{qaris.filter((q) => q.isAvailable).length} online</div>
+      <h2 className="mb-2">Quem está disponível</h2>
+      <p className="text-[#54544a] text-[0.9rem] mb-4">
+        Escolha um Qari e envie um pedido de sessão. A chamada só começa quando ele aceitar.
+      </p>
+      {error && <div className="err">{error}</div>}
+
+      {qaris.length === 0 ? (
+        <div className="text-center py-10 text-[#8a8a7d] text-[0.88rem]">
+          Ainda não há Qaris registados. Volte mais tarde.
         </div>
-        {error && <div className="mx-5 mt-4 rounded-xl bg-[#fff1ef] px-4 py-3 text-sm text-[#a44b43]">{error}</div>}
-        {qaris.length === 0 ? <div className="p-10 text-center text-sm text-[#8a8a7d]">Ainda não há Qaris registados. Volte mais tarde.</div> : <div>{qaris.map((q) => <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={handleCallNow} />)}</div>}
-      </section>
-    </main>
+      ) : (
+        <div className="border border-gold-500/20">
+          {qaris.map((q) => (
+            <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={handleCallNow} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

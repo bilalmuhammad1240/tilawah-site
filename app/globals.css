@@ -2,80 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --forest: #063f35;
-  --forest-2: #075247;
-  --gold: #d5aa52;
-  --cream: #f7f5ef;
-  --ink: #102c27;
-  --muted: #6f7771;
-  --line: #e7e5dc;
+@layer base {
+  body {
+    @apply bg-stone-50 text-ink-900 font-sans min-h-screen;
+  }
+  h1, h2, h3 {
+    @apply font-display font-medium text-emerald-950;
+  }
+  *:focus-visible {
+    outline: 2px solid theme("colors.gold.500");
+    outline-offset: 2px;
+  }
 }
-
-* { box-sizing: border-box; }
-html, body { min-height: 100%; }
-body {
-  margin: 0;
-  background: var(--cream);
-  color: var(--ink);
-  font-family: var(--font-work-sans), system-ui, sans-serif;
-}
-button, input, select, textarea { font: inherit; }
 
 @layer components {
-  .app-shell {
-    min-height: 100vh;
-    background: var(--cream);
+  .card {
+    @apply bg-white border border-gold-500/30 p-9 shadow-[0_20px_50px_-30px_rgba(10,46,43,0.4)] w-full max-w-[480px];
   }
-  .top-hero {
-    position: relative;
-    overflow: hidden;
-    min-height: 360px;
-    background: linear-gradient(135deg, #063d34 0%, #075448 55%, #064439 100%);
-    color: white;
+  .eyebrow {
+    @apply font-mono text-[0.72rem] uppercase tracking-[0.12em] text-maroon-600 flex items-center gap-2 mb-4;
   }
-  .top-hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    opacity: .09;
-    background-image: radial-gradient(circle at 20% 20%, #d5aa52 0 1px, transparent 1px), radial-gradient(circle at 80% 60%, #fff 0 1px, transparent 1px);
-    background-size: 42px 42px, 58px 58px;
-    pointer-events: none;
+  .dot {
+    @apply w-1.5 h-1.5 rounded-full bg-current animate-pulse;
   }
-  .page-wrap { width: min(1100px, calc(100% - 32px)); margin: 0 auto; }
-  .glass-card {
-    background: rgba(255,255,255,.09);
-    border: 1px solid rgba(255,255,255,.13);
-    box-shadow: 0 12px 30px rgba(0,0,0,.12);
-    backdrop-filter: blur(8px);
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 py-3 px-5 w-full border-0 text-[0.92rem] font-semibold tracking-wide mt-6 transition-colors;
   }
-  .content-card {
-    background: #fff;
-    border: 1px solid rgba(15,55,47,.06);
-    border-radius: 22px;
-    box-shadow: 0 7px 24px rgba(27,47,42,.07);
-  }
-  .gold { color: var(--gold); }
   .btn-primary {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    border-radius: 12px; background: var(--forest); color: white; font-weight: 600;
-    padding: 12px 18px; transition: .2s ease; box-shadow: 0 5px 12px rgba(6,63,53,.16);
+    @apply bg-emerald-900 text-stone-50 hover:bg-emerald-800;
   }
-  .btn-primary:hover { transform: translateY(-1px); background: #075044; }
-  .btn-primary:disabled { opacity: .45; transform: none; cursor: not-allowed; }
-  .btn-secondary {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    border-radius: 12px; background: #f1f3ed; color: var(--forest); font-weight: 600; padding: 11px 16px;
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed;
   }
-  .section-title { font-size: 1.35rem; font-weight: 650; letter-spacing: -.02em; }
-  .bottom-nav { box-shadow: 0 -6px 24px rgba(10,40,35,.10); }
-  .avatar-ring { border: 3px solid #e7eee7; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
-  .stat-divider:not(:last-child) { border-right: 1px solid #e5e5df; }
-}
-
-@media (max-width: 700px) {
-  .page-wrap { width: min(100% - 20px, 680px); }
-  .top-hero { min-height: 330px; }
-  .stat-divider:not(:last-child) { border-right: 0; border-bottom: 1px solid #e5e5df; }
+  .btn-danger {
+    @apply bg-maroon-600 text-white hover:bg-[#733030];
+  }
+  .btn-gold {
+    @apply bg-gold-500 text-emerald-950 hover:bg-gold-300;
+  }
+  .btn-ghost {
+    @apply bg-transparent border border-gold-500/30 text-emerald-900;
+  }
+  .input-field {
+    @apply w-full py-3 px-3.5 border border-gold-500/30 bg-stone-50 text-[0.95rem] text-ink-900 focus:bg-white focus:border-gold-500;
+  }
+  .field-label {
+    @apply block text-[0.78rem] uppercase tracking-wide text-[#6b6b5f] mb-1.5 mt-4 first:mt-0;
+  }
+  .avatar {
+    @apply w-9 h-9 rounded-full bg-gradient-to-br from-gold-500 to-emerald-700 flex items-center justify-center font-display font-semibold text-emerald-950 text-[0.95rem];
+  }
+  .hint {
+    @apply text-[#8a8a7d] text-[0.78rem] mt-3.5 leading-relaxed;
+  }
+  .err {
+    @apply text-maroon-600 text-[0.82rem] mt-2 min-h-[1em];
+  }
 }
