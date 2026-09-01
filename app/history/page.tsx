@@ -7,7 +7,7 @@ import { listMyHistory } from "@/lib/sessions/api";
 
 function fmtMoney(v: number | null) {
   if (!v) return "—";
-  return "€" + v.toFixed(2).replace(".", ",");
+  return v.toFixed(2).replace(".", ",") + " MT";
 }
 
 export default function HistoryPage() {

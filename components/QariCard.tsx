@@ -11,7 +11,7 @@ function initials(name: string) {
 }
 
 function fmtMoney(v: number) {
-  return "€" + v.toFixed(2).replace(".", ",");
+  return v.toFixed(2).replace(".", ",") + " MT";
 }
 
 export default function QariCard({

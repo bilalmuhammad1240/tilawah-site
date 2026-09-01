@@ -2,6 +2,16 @@
 
 import { useState } from "react";
 import type { QariListItem } from "./QariCard";
+import PaymentInstructions, { type PaymentChoice } from "./PaymentInstructions";
+
+export type SessionRequestData = {
+  surahNumber?: number;
+  ayahStart?: number;
+  ayahEnd?: number;
+  paymentMethod: "emola" | "mpesa";
+  estimatedMinutes: number;
+  estimatedAmount: number;
+};
 
 export default function SessionRequest({
   qari,
@@ -11,24 +21,44 @@ export default function SessionRequest({
 }: {
   qari: QariListItem;
   submitting: boolean;
-  onSubmit: (data: { surahNumber?: number; ayahStart?: number; ayahEnd?: number }) => void;
+  onSubmit: (data: SessionRequestData) => void;
   onCancel: () => void;
 }) {
+  const [step, setStep] = useState<"details" | "payment">("details");
   const [decideNow, setDecideNow] = useState(true);
   const [surah, setSurah] = useState("");
   const [ayahStart, setAyahStart] = useState("");
   const [ayahEnd, setAyahEnd] = useState("");
 
-  function submit() {
-    if (!decideNow) {
-      onSubmit({});
-      return;
-    }
+  function goToPayment() {
+    setStep("payment");
+  }
+
+  function handlePaymentConfirmed(choice: PaymentChoice) {
+    const base = decideNow
+      ? {
+          surahNumber: surah ? parseInt(surah, 10) : undefined,
+          ayahStart: ayahStart ? parseInt(ayahStart, 10) : undefined,
+          ayahEnd: ayahEnd ? parseInt(ayahEnd, 10) : undefined,
+        }
+      : {};
     onSubmit({
-      surahNumber: surah ? parseInt(surah, 10) : undefined,
-      ayahStart: ayahStart ? parseInt(ayahStart, 10) : undefined,
-      ayahEnd: ayahEnd ? parseInt(ayahEnd, 10) : undefined,
+      ...base,
+      paymentMethod: choice.method,
+      estimatedMinutes: choice.estimatedMinutes,
+      estimatedAmount: choice.estimatedAmount,
     });
+  }
+
+  if (step === "payment") {
+    return (
+      <PaymentInstructions
+        ratePerMinute={qari.ratePerMinute}
+        submitting={submitting}
+        onConfirm={handlePaymentConfirmed}
+        onBack={() => setStep("details")}
+      />
+    );
   }
 
   return (
@@ -77,8 +107,8 @@ export default function SessionRequest({
         </div>
       )}
 
-      <button className="btn btn-primary" disabled={submitting} onClick={submit}>
-        {submitting ? "A enviar pedido…" : "Enviar pedido ao Qari"}
+      <button className="btn btn-primary" onClick={goToPayment}>
+        Continuar para pagamento
       </button>
       <button className="btn btn-ghost" onClick={onCancel}>
         Cancelar

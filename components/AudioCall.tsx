@@ -12,7 +12,7 @@ function fmtTime(sec: number) {
   return `${m}:${s}`;
 }
 function fmtMoney(v: number) {
-  return "€" + v.toFixed(2).replace(".", ",");
+  return v.toFixed(2).replace(".", ",") + " MT";
 }
 
 type Props = {

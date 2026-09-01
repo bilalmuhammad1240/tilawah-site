@@ -9,6 +9,7 @@ import AudioCall from "@/components/AudioCall";
 import FeedbackForm from "@/components/FeedbackForm";
 import { acceptSession, rejectSession, endSession } from "@/lib/sessions/api";
 import { createNotification } from "@/lib/notifications/api";
+import { fmtMoney } from "@/lib/payments/constants";
 
 type SessionRow = {
   id: string;
@@ -16,6 +17,9 @@ type SessionRow = {
   qari_id: string;
   status: string;
   rate_per_minute: number;
+  payment_method: "emola" | "mpesa" | null;
+  payment_estimated_amount: number | null;
+  payment_reported: boolean;
   student: { name: string };
   qari: { name: string };
 };
@@ -115,6 +119,23 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const isStudent = profile.id === session.student_id;
   const peerName = isStudent ? session.qari.name : session.student.name;
 
+  function PaymentBanner() {
+    if (isStudent || !session!.payment_reported) return null;
+    const methodLabel = session!.payment_method === "emola" ? "eMola" : "M-Pesa";
+    return (
+      <div className="border border-gold-500/30 bg-stone-50 p-3 text-left mb-4 -mt-1">
+        <div className="text-[0.72rem] uppercase tracking-wide text-[#8a8a7d] mb-1">Pagamento reportado pelo aluno</div>
+        <div className="text-[0.85rem] text-emerald-950">
+          {session!.payment_estimated_amount != null ? fmtMoney(session!.payment_estimated_amount) : "valor não indicado"}{" "}
+          via {methodLabel}
+        </div>
+        <div className="text-[0.72rem] text-[#8a8a7d] mt-1">
+          Não verificado automaticamente — confirme no seu extrato antes de atender.
+        </div>
+      </div>
+    );
+  }
+
   async function handleAcceptSessionRequest() {
     await acceptSession(session!.id);
   }
@@ -173,17 +194,26 @@ export default function SessionPage({ params }: { params: { id: string } }) {
 
   if (incomingCall) {
     return (
-      <AudioCall
-        mode="incoming"
-        peerName={peerName}
-        ratePerMinute={session.rate_per_minute}
-        status="ringing"
-        remoteStream={null}
-        errorMessage={null}
-        onAccept={handleAcceptIncomingCall}
-        onReject={handleRejectIncomingCall}
-        onEnd={() => {}}
-      />
+      <div className="flex flex-col items-center gap-3 w-full">
+        {!isStudent && (
+          <div className="card !p-0 overflow-hidden w-full">
+            <div className="p-4">
+              <PaymentBanner />
+            </div>
+          </div>
+        )}
+        <AudioCall
+          mode="incoming"
+          peerName={peerName}
+          ratePerMinute={session.rate_per_minute}
+          status="ringing"
+          remoteStream={null}
+          errorMessage={null}
+          onAccept={handleAcceptIncomingCall}
+          onReject={handleRejectIncomingCall}
+          onEnd={() => {}}
+        />
+      </div>
     );
   }
 
@@ -219,8 +249,9 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         <div className="eyebrow justify-center">
           <span className="dot" /> Novo pedido
         </div>
-        <h2 className="mb-2">{session.student.name} quer recitar consigo</h2>
-        <div className="flex gap-3 mt-5">
+        <h2 className="mb-4">{session.student.name} quer recitar consigo</h2>
+        <PaymentBanner />
+        <div className="flex gap-3 mt-1">
           <button className="btn btn-danger !mt-0" onClick={handleRejectSessionRequest}>
             Recusar
           </button>

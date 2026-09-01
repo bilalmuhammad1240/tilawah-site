@@ -22,6 +22,9 @@ export async function requestSession(params: {
   ayahStart?: number;
   ayahEnd?: number;
   ratePerMinute: number;
+  paymentMethod: "emola" | "mpesa";
+  estimatedMinutes: number;
+  estimatedAmount: number;
 }) {
   const supabase = createClient();
   const {
@@ -39,6 +42,11 @@ export async function requestSession(params: {
       ayah_end: params.ayahEnd ?? null,
       rate_per_minute: params.ratePerMinute,
       status: "requested",
+      payment_method: params.paymentMethod,
+      payment_estimated_minutes: params.estimatedMinutes,
+      payment_estimated_amount: params.estimatedAmount,
+      payment_reported: true,
+      payment_reported_at: new Date().toISOString(),
     })
     .select()
     .single();
@@ -51,8 +59,15 @@ export async function requestSession(params: {
 
 // Chamada direta: o Qari já está disponível, por isso salta-se o passo
 // de pedido/aceitação — a sessão nasce já "accepted" e a chamada começa
-// de imediato (é o próprio atender que confirma a aceitação).
-export async function startDirectCall(params: { qariId: string; ratePerMinute: number }) {
+// de imediato (é o próprio atender que confirma a aceitação, depois de
+// verificar o pagamento reportado pelo aluno).
+export async function startDirectCall(params: {
+  qariId: string;
+  ratePerMinute: number;
+  paymentMethod: "emola" | "mpesa";
+  estimatedMinutes: number;
+  estimatedAmount: number;
+}) {
   const supabase = createClient();
   const {
     data: { user },
@@ -67,6 +82,11 @@ export async function startDirectCall(params: { qariId: string; ratePerMinute: n
       rate_per_minute: params.ratePerMinute,
       status: "accepted",
       started_at: new Date().toISOString(),
+      payment_method: params.paymentMethod,
+      payment_estimated_minutes: params.estimatedMinutes,
+      payment_estimated_amount: params.estimatedAmount,
+      payment_reported: true,
+      payment_reported_at: new Date().toISOString(),
     })
     .select()
     .single();

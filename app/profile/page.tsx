@@ -78,7 +78,7 @@ export default function ProfilePage() {
             {isAvailable ? "Disponível agora" : "Indisponível"}
           </button>
 
-          <label className="field-label">Tarifa por minuto (€)</label>
+          <label className="field-label">Tarifa por minuto (MT)</label>
           <input className="input-field" value={rate} onChange={(e) => setRate(e.target.value)} />
 
           <label className="field-label">Especialidades (separadas por vírgula)</label>

@@ -6,7 +6,8 @@ import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
 import Navigation from "@/components/Navigation";
 import QariCard, { type QariListItem } from "@/components/QariCard";
-import SessionRequest from "@/components/SessionRequest";
+import SessionRequest, { type SessionRequestData } from "@/components/SessionRequest";
+import PaymentInstructions, { type PaymentChoice } from "@/components/PaymentInstructions";
 import { requestSession, startDirectCall } from "@/lib/sessions/api";
 
 export default function QarisPage() {
@@ -16,6 +17,7 @@ export default function QarisPage() {
 
   const [qaris, setQaris] = useState<QariListItem[]>([]);
   const [selected, setSelected] = useState<QariListItem | null>(null);
+  const [callTarget, setCallTarget] = useState<QariListItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,12 +49,18 @@ export default function QarisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleCallNow(qari: QariListItem) {
+  async function handleCallNowPayment(choice: PaymentChoice) {
+    if (!callTarget) return;
+    setSubmitting(true);
     setError("");
     const { data: session, error: callError } = await startDirectCall({
-      qariId: qari.id,
-      ratePerMinute: qari.ratePerMinute,
+      qariId: callTarget.id,
+      ratePerMinute: callTarget.ratePerMinute,
+      paymentMethod: choice.method,
+      estimatedMinutes: choice.estimatedMinutes,
+      estimatedAmount: choice.estimatedAmount,
     });
+    setSubmitting(false);
     if (callError || !session) {
       setError("Não foi possível ligar agora. Tente novamente.");
       return;
@@ -60,7 +68,7 @@ export default function QarisPage() {
     router.push(`/session/${session.id}`);
   }
 
-  async function handleRequest(data: { surahNumber?: number; ayahStart?: number; ayahEnd?: number }) {
+  async function handleRequest(data: SessionRequestData) {
     if (!selected) return;
     setSubmitting(true);
     setError("");
@@ -79,6 +87,17 @@ export default function QarisPage() {
 
   if (loading) return <div className="card text-center text-[#8a8a7d]">A carregar…</div>;
   if (!profile) return null;
+
+  if (callTarget) {
+    return (
+      <PaymentInstructions
+        ratePerMinute={callTarget.ratePerMinute}
+        submitting={submitting}
+        onConfirm={handleCallNowPayment}
+        onBack={() => setCallTarget(null)}
+      />
+    );
+  }
 
   if (selected) {
     return (
@@ -110,7 +129,7 @@ export default function QarisPage() {
       ) : (
         <div className="border border-gold-500/20">
           {qaris.map((q) => (
-            <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={handleCallNow} />
+            <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={setCallTarget} />
           ))}
         </div>
       )}

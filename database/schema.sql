@@ -346,3 +346,18 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ============================================================
+-- Pagamento manual (Fase 7, sem gateway) — eMola/M-Pesa
+-- ============================================================
+-- Sem integração de pagamento real: o aluno vê os dados da conta na
+-- app, transfere manualmente, e autorreporta que pagou. O Qari decide
+-- se confirma o recebimento antes de atender — não há validação
+-- automática nenhuma. Isto é uma escolha deliberada para o MVP com
+-- poucos Qaris de confiança (secção 19 do plano); não usar isto assim
+-- se o número de utilizadores crescer sem controlo.
+alter table recitation_sessions add column if not exists payment_method text check (payment_method in ('emola', 'mpesa'));
+alter table recitation_sessions add column if not exists payment_estimated_minutes int;
+alter table recitation_sessions add column if not exists payment_estimated_amount numeric(10,2);
+alter table recitation_sessions add column if not exists payment_reported boolean not null default false;
+alter table recitation_sessions add column if not exists payment_reported_at timestamptz;

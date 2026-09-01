@@ -120,7 +120,7 @@ export default function LoginPage() {
 
           {role === "qari" && (
             <>
-              <label className="field-label">A sua tarifa por minuto (€)</label>
+              <label className="field-label">A sua tarifa por minuto (MT)</label>
               <input className="input-field" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="ex.: 0.45" />
             </>
           )}
