@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.vercel.tilawah_site.twa",
+    "sha256_cert_fingerprints": ["C8:4F:33:17:88:61:7D:F3:CF:40:20:EE:FA:33:4F:7C:AC:9B:27:F5:F0:E1:D4:5C:93:66:35:2F:97:A6:E9:31"]
+  }
+}]
