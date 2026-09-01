@@ -22,10 +22,11 @@ const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-ibm-plex-mono",
 });
 
-export const metadata: Metadata = {
-  title: "Tilawah — Recitação ao vivo",
-  description:
-    "Quando tiveres tempo, encontra alguém para ouvir a tua recitação.",
+export const metadata = {
+  title: 'Tilawah',
+  description: 'App de recitação e chamadas ao vivo',
+  manifest: '/manifest.json',
+  themeColor: '#0a2e2b',
 };
 
 export default function RootLayout({
