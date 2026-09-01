@@ -361,3 +361,48 @@ alter table recitation_sessions add column if not exists payment_estimated_minut
 alter table recitation_sessions add column if not exists payment_estimated_amount numeric(10,2);
 alter table recitation_sessions add column if not exists payment_reported boolean not null default false;
 alter table recitation_sessions add column if not exists payment_reported_at timestamptz;
+
+-- ============================================================
+-- Fase 8 — Admin
+-- ============================================================
+-- As políticas até aqui só deixam cada pessoa ver os seus próprios
+-- dados. Um admin precisa de ver tudo, para gestão/moderação
+-- (secção 6 do plano). is_admin() corre com privilégios de servidor
+-- para poder ler profiles.role sem entrar num ciclo de RLS sobre a
+-- própria tabela profiles.
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+create policy "sessions: admin vê todas"
+  on recitation_sessions for select
+  using (public.is_admin());
+
+create policy "reports: admin vê todas"
+  on reports for select
+  using (public.is_admin());
+
+create policy "reports: admin pode atualizar (marcar resolvida)"
+  on reports for update
+  using (public.is_admin());
+
+alter table reports add column if not exists resolved boolean not null default false;
+
+create policy "transactions: admin vê todas"
+  on transactions for select
+  using (public.is_admin());
+
+create policy "wallets: admin vê todas"
+  on wallets for select
+  using (public.is_admin());
+
+-- Nota: para promover alguém a admin, correr manualmente no SQL Editor:
+-- update profiles set role = 'admin' where id = '<uuid-do-utilizador>';
