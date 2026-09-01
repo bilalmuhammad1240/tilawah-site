@@ -406,3 +406,42 @@ create policy "wallets: admin vê todas"
 
 -- Nota: para promover alguém a admin, correr manualmente no SQL Editor:
 -- update profiles set role = 'admin' where id = '<uuid-do-utilizador>';
+
+-- ============================================================
+-- Fase 9 — Diagnóstico de chamadas (secção 12: "guardar eventos de
+-- conexão para diagnóstico, sem gravar áudio por padrão")
+-- ============================================================
+-- Nunca guarda áudio nem conteúdo da chamada — só metadados técnicos
+-- (estados de ligação ICE, tipo de candidato selecionado: direto/STUN/
+-- TURN). Serve para perceber PORQUE uma chamada falhou quando testares
+-- em redes diferentes (Wi-Fi↔dados móveis, duas redes móveis, etc.).
+create table if not exists call_diagnostics (
+  id uuid primary key default uuid_generate_v4(),
+  call_id uuid not null references calls(id) on delete cascade,
+  user_id uuid not null references profiles(id),
+  role text not null check (role in ('caller', 'callee')),
+  event text not null,
+  detail jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+alter table call_diagnostics enable row level security;
+
+create policy "call_diagnostics: participantes da chamada inserem"
+  on call_diagnostics for insert
+  with check (
+    exists (
+      select 1 from calls c
+      where c.id = call_id and (c.caller_id = auth.uid() or c.callee_id = auth.uid())
+    )
+  );
+
+create policy "call_diagnostics: participantes ou admin veem"
+  on call_diagnostics for select
+  using (
+    exists (
+      select 1 from calls c
+      where c.id = call_id and (c.caller_id = auth.uid() or c.callee_id = auth.uid())
+    )
+    or public.is_admin()
+  );

@@ -39,6 +39,44 @@ export function useWebRTCCall(myUserId: string | null) {
   const iceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Nunca regista áudio nem conteúdo — só metadados técnicos da ligação
+  // (secção 12 do plano: "guardar eventos de conexão para diagnóstico,
+  // sem gravar áudio por padrão"). Útil para perceber, depois de um
+  // teste em redes diferentes, se a chamada usou ligação direta, STUN
+  // ou teve de cair para o relay TURN.
+  function logDiagnostic(callId: string, role: "caller" | "callee", event: string, detail: Record<string, any> = {}) {
+    if (!myUserId) return;
+    supabase.from("call_diagnostics").insert({ call_id: callId, user_id: myUserId, role, event, detail }).then(
+      () => {},
+      () => {}
+    );
+  }
+
+  async function logSelectedCandidateType(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
+    try {
+      const stats = await pc.getStats();
+      let pairType: string | null = null;
+      let localType: string | null = null;
+      let remoteType: string | null = null;
+      stats.forEach((report: any) => {
+        if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+          pairType = "succeeded";
+          const local = stats.get(report.localCandidateId);
+          const remote = stats.get(report.remoteCandidateId);
+          if (local) localType = local.candidateType;
+          if (remote) remoteType = remote.candidateType;
+        }
+      });
+      logDiagnostic(callId, role, "candidate_pair_selected", {
+        localType,
+        remoteType,
+        usedRelay: localType === "relay" || remoteType === "relay",
+      });
+    } catch {
+      // getStats pode falhar em navegadores mais antigos — não é crítico
+    }
+  }
+
   function micErrorMessage(e: any): string {
     const name = e && e.name;
     if (name === "NotAllowedError" || name === "PermissionDeniedError") {
@@ -88,11 +126,17 @@ export function useWebRTCCall(myUserId: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function attachConnectionWatchers(pc: RTCPeerConnection, callId: string) {
+  function attachConnectionWatchers(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
+    pc.oniceconnectionstatechange = () => {
+      logDiagnostic(callId, role, "ice_connection_state", { state: pc.iceConnectionState });
+    };
+
     pc.onconnectionstatechange = () => {
+      logDiagnostic(callId, role, "connection_state", { state: pc.connectionState });
       if (pc.connectionState === "connected") {
         if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
         setStatus("connected");
+        logSelectedCandidateType(pc, callId, role);
       } else if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
         setErrorMessage(
           "Não foi possível estabelecer a ligação de áudio. Isto costuma acontecer quando as duas redes não conseguem falar diretamente uma com a outra. Tente novamente, idealmente com os dois em Wi-Fi."
@@ -104,6 +148,7 @@ export function useWebRTCCall(myUserId: string | null) {
     connectTimeoutRef.current = setTimeout(() => {
       setStatus((current) => {
         if (current !== "connected") {
+          logDiagnostic(callId, role, "connect_timeout", { afterMs: CONNECT_TIMEOUT_MS });
           setErrorMessage(
             "A chamada demorou demasiado tempo a ligar. Verifique a rede e tente novamente."
           );
@@ -215,7 +260,8 @@ export function useWebRTCCall(myUserId: string | null) {
         )
         .subscribe();
 
-      attachConnectionWatchers(pc, confirmedCallId);
+      logDiagnostic(confirmedCallId, "caller", "call_started", {});
+      attachConnectionWatchers(pc, confirmedCallId, "caller");
       return confirmedCallId;
     },
     [myUserId, cleanup]
@@ -278,7 +324,8 @@ export function useWebRTCCall(myUserId: string | null) {
         )
         .subscribe();
 
-      attachConnectionWatchers(pc, call.id);
+      logDiagnostic(call.id, "callee", "call_accepted", {});
+      attachConnectionWatchers(pc, call.id, "callee");
       return true;
     },
     [myUserId, cleanup]

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import Navigation from "@/components/Navigation";
 import { fmtMoney } from "@/lib/payments/constants";
 
-type Tab = "users" | "sessions" | "reports";
+type Tab = "users" | "sessions" | "reports" | "diagnostics";
 
 type UserRow = { id: string; name: string; role: string; created_at: string };
 type SessionRow = {
@@ -28,6 +28,15 @@ type ReportRow = {
   reporter: { name: string } | null;
   target_session_id: string | null;
 };
+type DiagnosticRow = {
+  id: string;
+  call_id: string;
+  role: string;
+  event: string;
+  detail: any;
+  created_at: string;
+  user: { name: string } | null;
+};
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -40,13 +49,14 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [reports, setReports] = useState<ReportRow[]>([]);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticRow[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
     if (!profile || profile.role !== "admin") return;
 
     async function loadAll() {
-      const [{ data: u }, { data: s }, { data: r }] = await Promise.all([
+      const [{ data: u }, { data: s }, { data: r }, { data: d }] = await Promise.all([
         supabase.from("profiles").select("id, name, role, created_at").order("created_at", { ascending: false }),
         supabase
           .from("recitation_sessions")
@@ -59,10 +69,16 @@ export default function AdminPage() {
           .from("reports")
           .select("id, reason, resolved, created_at, target_session_id, reporter:profiles!reports_reporter_id_fkey(name)")
           .order("created_at", { ascending: false }),
+        supabase
+          .from("call_diagnostics")
+          .select("id, call_id, role, event, detail, created_at, user:profiles!call_diagnostics_user_id_fkey(name)")
+          .order("created_at", { ascending: false })
+          .limit(100),
       ]);
       setUsers((u as any) ?? []);
       setSessions((s as any) ?? []);
       setReports((r as any) ?? []);
+      setDiagnostics((d as any) ?? []);
       setLoadingData(false);
     }
     loadAll();
@@ -110,6 +126,12 @@ export default function AdminPage() {
           onClick={() => setTab("reports")}
         >
           Denúncias {pendingReports > 0 ? `(${pendingReports} por rever)` : ""}
+        </button>
+        <button
+          className={`py-1.5 px-3 text-[0.8rem] border ${tab === "diagnostics" ? "bg-emerald-950 text-stone-50 border-emerald-950" : "border-gold-500/30 text-emerald-900"}`}
+          onClick={() => setTab("diagnostics")}
+        >
+          Diagnóstico de chamadas
         </button>
       </div>
 
@@ -177,6 +199,46 @@ export default function AdminPage() {
                 </div>
               ))}
               {reports.length === 0 && <div className="text-[0.85rem] text-[#8a8a7d]">Sem denúncias.</div>}
+            </div>
+          )}
+
+          {tab === "diagnostics" && (
+            <div className="flex flex-col gap-4">
+              <p className="hint !mt-0">
+                Nunca inclui áudio — só estados de ligação técnica. Depois de um teste (ex.: um telemóvel em Wi-Fi e
+                outro em dados móveis), procura o evento <code>candidate_pair_selected</code>: se{" "}
+                <code>usedRelay</code> for <code>true</code>, a chamada precisou do servidor TURN para ligar.
+              </p>
+              {Object.entries(
+                diagnostics.reduce((groups: Record<string, DiagnosticRow[]>, d) => {
+                  (groups[d.call_id] ??= []).push(d);
+                  return groups;
+                }, {})
+              ).map(([callId, events]) => (
+                <div key={callId} className="border border-gold-500/20 p-3">
+                  <div className="text-[0.72rem] font-mono text-[#8a8a7d] mb-2">Chamada {callId.slice(0, 8)}…</div>
+                  <div className="flex flex-col gap-1">
+                    {events
+                      .slice()
+                      .reverse()
+                      .map((e) => (
+                        <div key={e.id} className="text-[0.76rem] text-ink-900 flex gap-2">
+                          <span className="text-[#8a8a7d] flex-shrink-0">{fmtDate(e.created_at)}</span>
+                          <span className="font-semibold flex-shrink-0">[{e.role}]</span>
+                          <span>{e.event}</span>
+                          {Object.keys(e.detail ?? {}).length > 0 && (
+                            <span className="text-[#8a8a7d]">— {JSON.stringify(e.detail)}</span>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ))}
+              {diagnostics.length === 0 && (
+                <div className="text-[0.85rem] text-[#8a8a7d]">
+                  Sem dados ainda — faz uma chamada de teste e volta aqui.
+                </div>
+              )}
             </div>
           )}
         </>
