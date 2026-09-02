@@ -264,9 +264,14 @@ create policy "calls: só chamador ou destinatário veem"
   on calls for select
   using (auth.uid() = caller_id or auth.uid() = callee_id);
 
-create policy "calls: só o chamador cria"
+drop policy if exists "calls: só o chamador cria" on calls;
+
+create policy "calls: só o chamador cria, e só para um Qari"
   on calls for insert
-  with check (auth.uid() = caller_id);
+  with check (
+    auth.uid() = caller_id
+    and exists (select 1 from profiles where id = callee_id and role = 'qari')
+  );
 
 create policy "calls: chamador ou destinatário atualizam (aceitar/recusar/terminar)"
   on calls for update

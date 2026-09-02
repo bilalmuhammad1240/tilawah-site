@@ -41,14 +41,32 @@ export default function AudioCall({
   onEnd,
 }: Props) {
   const [seconds, setSeconds] = useState(0);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const startRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (audioRef.current && remoteStream) {
       audioRef.current.srcObject = remoteStream;
+      // Alguns navegadores móveis bloqueiam o autoplay de áudio se a
+      // ligação demorar a negociar (o "gesto do utilizador" que
+      // autorizou o autoplay já expirou). Sem isto, o áudio falha em
+      // silêncio — a pessoa não ouve nada e não há nenhum aviso.
+      const playPromise = audioRef.current.play();
+      if (playPromise) {
+        playPromise.catch(() => setAudioBlocked(true));
+      }
     }
   }, [remoteStream]);
+
+  function retryPlay() {
+    if (audioRef.current) {
+      audioRef.current.play().then(
+        () => setAudioBlocked(false),
+        () => setAudioBlocked(true)
+      );
+    }
+  }
 
   useEffect(() => {
     if (status === "connected" && startRef.current === null) {
@@ -136,6 +154,11 @@ export default function AudioCall({
       <button className="btn btn-danger" onClick={() => onEnd(seconds)}>
         Encerrar chamada
       </button>
+      {audioBlocked && (
+        <button className="btn btn-gold" onClick={retryPlay} type="button">
+          🔊 Toque para ativar o som
+        </button>
+      )}
       <audio ref={audioRef} autoPlay className="hidden" />
     </div>
   );
