@@ -24,6 +24,12 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 const CONNECT_TIMEOUT_MS = 25000;
+// Rede de segurança: já vimos o tempo real do Supabase falhar em
+// entregar eventos (chamadas perdidas, e agora possivelmente a
+// resposta SDP também). Isto verifica diretamente na base de dados,
+// em paralelo à subscrição em tempo real, para nunca depender só do
+// WebSocket para a parte crítica da ligação.
+const POLL_INTERVAL_MS = 3000;
 
 export type CallStatus = "idle" | "ringing" | "connecting" | "connected" | "failed" | "ended";
 
@@ -38,6 +44,9 @@ export function useWebRTCCall(myUserId: string | null) {
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const iceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appliedCandidateIdsRef = useRef<Set<string>>(new Set());
+  const answerAppliedRef = useRef(false);
 
   // Nunca regista áudio nem conteúdo — só metadados técnicos da ligação
   // (secção 12 do plano: "guardar eventos de conexão para diagnóstico,
@@ -55,12 +64,10 @@ export function useWebRTCCall(myUserId: string | null) {
   async function logSelectedCandidateType(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
     try {
       const stats = await pc.getStats();
-      let pairType: string | null = null;
       let localType: string | null = null;
       let remoteType: string | null = null;
       stats.forEach((report: any) => {
         if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
-          pairType = "succeeded";
           const local = stats.get(report.localCandidateId);
           const remote = stats.get(report.remoteCandidateId);
           if (local) localType = local.candidateType;
@@ -104,6 +111,10 @@ export function useWebRTCCall(myUserId: string | null) {
   const cleanup = useCallback(() => {
     if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
     connectTimeoutRef.current = null;
+    if (pollHandleRef.current) clearInterval(pollHandleRef.current);
+    pollHandleRef.current = null;
+    appliedCandidateIdsRef.current = new Set();
+    answerAppliedRef.current = false;
     if (callChannelRef.current) {
       supabase.removeChannel(callChannelRef.current);
       callChannelRef.current = null;
@@ -221,28 +232,31 @@ export function useWebRTCCall(myUserId: string | null) {
           .insert({ call_id: confirmedCallId, role: "caller", candidate: cand });
       }
 
+      async function applyAnswerIfPresent(updated: any) {
+        if (answerAppliedRef.current) return;
+        if (updated?.status === "rejected") {
+          setStatus("ended");
+          cleanup();
+          return;
+        }
+        if (updated?.status === "ended" && updated.ended_by !== myUserId) {
+          setStatus("ended");
+          cleanup();
+          return;
+        }
+        if (updated?.answer && pc.signalingState === "have-local-offer") {
+          answerAppliedRef.current = true;
+          await pc.setRemoteDescription(new RTCSessionDescription(updated.answer));
+          setStatus("connecting");
+        }
+      }
+
       callChannelRef.current = supabase
         .channel("call-" + confirmedCallId)
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "calls", filter: "id=eq." + confirmedCallId },
-          async (payload) => {
-            const updated = payload.new as any;
-            if (updated.status === "rejected") {
-              setStatus("ended");
-              cleanup();
-              return;
-            }
-            if (updated.status === "ended" && updated.ended_by !== myUserId) {
-              setStatus("ended");
-              cleanup();
-              return;
-            }
-            if (updated.answer && pc.signalingState === "have-local-offer") {
-              await pc.setRemoteDescription(new RTCSessionDescription(updated.answer));
-              setStatus("connecting");
-            }
-          }
+          (payload) => applyAnswerIfPresent(payload.new)
         )
         .subscribe();
 
@@ -253,12 +267,35 @@ export function useWebRTCCall(myUserId: string | null) {
           { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + confirmedCallId },
           (payload) => {
             const cand = payload.new as any;
-            if (cand.role === "callee") {
+            if (cand.role === "callee" && !appliedCandidateIdsRef.current.has(cand.id)) {
+              appliedCandidateIdsRef.current.add(cand.id);
               pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
             }
           }
         )
         .subscribe();
+
+      // Rede de segurança: se o UPDATE com a resposta do Qari nunca
+      // chegar por tempo real (já vimos isto falhar noutros eventos),
+      // vai buscá-la diretamente à base de dados a cada poucos segundos.
+      // O mesmo para candidatos ICE que possam ter ficado por entregar.
+      pollHandleRef.current = setInterval(async () => {
+        if (!answerAppliedRef.current) {
+          const { data } = await supabase.from("calls").select("*").eq("id", confirmedCallId).maybeSingle();
+          if (data) await applyAnswerIfPresent(data);
+        }
+        const { data: candidates } = await supabase
+          .from("ice_candidates")
+          .select("*")
+          .eq("call_id", confirmedCallId)
+          .eq("role", "callee");
+        (candidates ?? []).forEach((cand: any) => {
+          if (!appliedCandidateIdsRef.current.has(cand.id)) {
+            appliedCandidateIdsRef.current.add(cand.id);
+            pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
+          }
+        });
+      }, POLL_INTERVAL_MS);
 
       logDiagnostic(confirmedCallId, "caller", "call_started", {});
       attachConnectionWatchers(pc, confirmedCallId, "caller");
@@ -293,7 +330,14 @@ export function useWebRTCCall(myUserId: string | null) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
-      await supabase.from("calls").update({ answer, status: "accepted" }).eq("id", call.id);
+      const { error: updateError } = await supabase
+        .from("calls")
+        .update({ answer, status: "accepted" })
+        .eq("id", call.id);
+
+      if (updateError) {
+        logDiagnostic(call.id, "callee", "answer_write_failed", { message: updateError.message });
+      }
 
       callChannelRef.current = supabase
         .channel("call-" + call.id)
@@ -317,12 +361,29 @@ export function useWebRTCCall(myUserId: string | null) {
           { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + call.id },
           (payload) => {
             const cand = payload.new as any;
-            if (cand.role === "caller") {
+            if (cand.role === "caller" && !appliedCandidateIdsRef.current.has(cand.id)) {
+              appliedCandidateIdsRef.current.add(cand.id);
               pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
             }
           }
         )
         .subscribe();
+
+      // Rede de segurança: candidatos ICE do chamador que o tempo real
+      // não tenha entregue.
+      pollHandleRef.current = setInterval(async () => {
+        const { data: candidates } = await supabase
+          .from("ice_candidates")
+          .select("*")
+          .eq("call_id", call.id)
+          .eq("role", "caller");
+        (candidates ?? []).forEach((cand: any) => {
+          if (!appliedCandidateIdsRef.current.has(cand.id)) {
+            appliedCandidateIdsRef.current.add(cand.id);
+            pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
+          }
+        });
+      }, POLL_INTERVAL_MS);
 
       logDiagnostic(call.id, "callee", "call_accepted", {});
       attachConnectionWatchers(pc, call.id, "callee");
