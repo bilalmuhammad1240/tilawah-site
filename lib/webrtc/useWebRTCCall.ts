@@ -187,11 +187,21 @@ export function useWebRTCCall(myUserId: string | null) {
 
       let callId: string | null = null;
       const pending: RTCIceCandidateInit[] = [];
+      let localCandidateCount = 0;
       pc.onicecandidate = (ev) => {
-        if (!ev.candidate) return;
+        if (!ev.candidate) {
+          if (callId) logDiagnostic(callId, "caller", "ice_gathering_complete", { localCandidateCount });
+          return;
+        }
+        localCandidateCount++;
         const json = ev.candidate.toJSON();
         if (callId) {
-          supabase.from("ice_candidates").insert({ call_id: callId, role: "caller", candidate: json });
+          supabase
+            .from("ice_candidates")
+            .insert({ call_id: callId, role: "caller", candidate: json })
+            .then(({ error }) => {
+              if (error) logDiagnostic(callId as string, "caller", "ice_insert_failed", { message: error.message });
+            });
         } else {
           pending.push(json);
         }
@@ -232,7 +242,7 @@ export function useWebRTCCall(myUserId: string | null) {
           .insert({ call_id: confirmedCallId, role: "caller", candidate: cand });
       }
 
-      async function applyAnswerIfPresent(updated: any) {
+      async function applyAnswerIfPresent(updated: any, via: "realtime" | "polling") {
         if (answerAppliedRef.current) return;
         if (updated?.status === "rejected") {
           setStatus("ended");
@@ -246,6 +256,7 @@ export function useWebRTCCall(myUserId: string | null) {
         }
         if (updated?.answer && pc.signalingState === "have-local-offer") {
           answerAppliedRef.current = true;
+          logDiagnostic(confirmedCallId, "caller", "answer_applied", { via });
           await pc.setRemoteDescription(new RTCSessionDescription(updated.answer));
           setStatus("connecting");
         }
@@ -256,7 +267,7 @@ export function useWebRTCCall(myUserId: string | null) {
         .on(
           "postgres_changes",
           { event: "UPDATE", schema: "public", table: "calls", filter: "id=eq." + confirmedCallId },
-          (payload) => applyAnswerIfPresent(payload.new)
+          (payload) => applyAnswerIfPresent(payload.new, "realtime")
         )
         .subscribe();
 
@@ -282,13 +293,16 @@ export function useWebRTCCall(myUserId: string | null) {
       pollHandleRef.current = setInterval(async () => {
         if (!answerAppliedRef.current) {
           const { data } = await supabase.from("calls").select("*").eq("id", confirmedCallId).maybeSingle();
-          if (data) await applyAnswerIfPresent(data);
+          if (data) await applyAnswerIfPresent(data, "polling");
         }
-        const { data: candidates } = await supabase
+        const { data: candidates, error: pollError } = await supabase
           .from("ice_candidates")
           .select("*")
           .eq("call_id", confirmedCallId)
           .eq("role", "callee");
+        if (pollError) {
+          logDiagnostic(confirmedCallId, "caller", "ice_poll_failed", { message: pollError.message });
+        }
         (candidates ?? []).forEach((cand: any) => {
           if (!appliedCandidateIdsRef.current.has(cand.id)) {
             appliedCandidateIdsRef.current.add(cand.id);
@@ -318,12 +332,19 @@ export function useWebRTCCall(myUserId: string | null) {
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       pc.ontrack = (ev) => setRemoteStream(ev.streams[0]);
 
+      let calleeLocalCandidateCount = 0;
       pc.onicecandidate = (ev) => {
-        if (ev.candidate) {
-          supabase
-            .from("ice_candidates")
-            .insert({ call_id: call.id, role: "callee", candidate: ev.candidate.toJSON() });
+        if (!ev.candidate) {
+          logDiagnostic(call.id, "callee", "ice_gathering_complete", { localCandidateCount: calleeLocalCandidateCount });
+          return;
         }
+        calleeLocalCandidateCount++;
+        supabase
+          .from("ice_candidates")
+          .insert({ call_id: call.id, role: "callee", candidate: ev.candidate.toJSON() })
+          .then(({ error }) => {
+            if (error) logDiagnostic(call.id, "callee", "ice_insert_failed", { message: error.message });
+          });
       };
 
       await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
@@ -337,6 +358,8 @@ export function useWebRTCCall(myUserId: string | null) {
 
       if (updateError) {
         logDiagnostic(call.id, "callee", "answer_write_failed", { message: updateError.message });
+      } else {
+        logDiagnostic(call.id, "callee", "answer_write_succeeded", {});
       }
 
       callChannelRef.current = supabase
@@ -372,11 +395,14 @@ export function useWebRTCCall(myUserId: string | null) {
       // Rede de segurança: candidatos ICE do chamador que o tempo real
       // não tenha entregue.
       pollHandleRef.current = setInterval(async () => {
-        const { data: candidates } = await supabase
+        const { data: candidates, error: pollError } = await supabase
           .from("ice_candidates")
           .select("*")
           .eq("call_id", call.id)
           .eq("role", "caller");
+        if (pollError) {
+          logDiagnostic(call.id, "callee", "ice_poll_failed", { message: pollError.message });
+        }
         (candidates ?? []).forEach((cand: any) => {
           if (!appliedCandidateIdsRef.current.has(cand.id)) {
             appliedCandidateIdsRef.current.add(cand.id);
