@@ -62,25 +62,32 @@ export function useWebRTCCall(myUserId: string | null) {
   }
 
   async function logSelectedCandidateType(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
-    try {
-      const stats = await pc.getStats();
-      let localType: string | null = null;
-      let remoteType: string | null = null;
-      stats.forEach((report: any) => {
-        if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
-          const local = stats.get(report.localCandidateId);
-          const remote = stats.get(report.remoteCandidateId);
-          if (local) localType = local.candidateType;
-          if (remote) remoteType = remote.candidateType;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const stats = await pc.getStats();
+        let localType: string | null = null;
+        let remoteType: string | null = null;
+        stats.forEach((report: any) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+            if (local) localType = local.candidateType;
+            if (remote) remoteType = remote.candidateType;
+          }
+        });
+        if (localType || remoteType || attempt === 2) {
+          logDiagnostic(callId, role, "candidate_pair_selected", {
+            localType,
+            remoteType,
+            usedRelay: localType === "relay" || remoteType === "relay",
+          });
+          return;
         }
-      });
-      logDiagnostic(callId, role, "candidate_pair_selected", {
-        localType,
-        remoteType,
-        usedRelay: localType === "relay" || remoteType === "relay",
-      });
-    } catch {
-      // getStats pode falhar em navegadores mais antigos — não é crítico
+      } catch {
+        // getStats pode falhar em navegadores mais antigos — não é crítico
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 400));
     }
   }
 
