@@ -58,9 +58,9 @@ export default function HistoryPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {sessions.map((s) => (
-            <div key={s.id} className="border border-gold-500/20 p-3.5">
-              <div className="flex justify-between text-[0.85rem] text-emerald-950 font-semibold mb-1">
-                <span>{s.status}</span>
+            <div key={s.id} className="history-item">
+              <div className="history-top text-[0.85rem] text-emerald-950 font-semibold mb-1">
+                <span className="status-pill">{s.status}</span>
                 <span className="font-mono">{fmtMoney(s.total_cost)}</span>
               </div>
               <div className="text-[0.78rem] text-[#8a8a7d]">

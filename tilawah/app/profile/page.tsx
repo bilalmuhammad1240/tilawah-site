@@ -63,6 +63,13 @@ export default function ProfilePage() {
     <div className="card">
       <Navigation profile={profile} />
       <h2 className="mb-4">O seu perfil</h2>
+      <div className="profile-header">
+        <div className="avatar">{(profile.name || "?").trim().slice(0, 1).toUpperCase()}</div>
+        <div>
+          <div className="font-semibold text-emerald-950">{profile.name}</div>
+          <div className="text-[0.76rem] text-[#7a817b]">{profile.role === "qari" ? "Qari / Professor" : "Aluno / Recitador"}</div>
+        </div>
+      </div>
 
       <label className="field-label !mt-0">Nome</label>
       <div className="text-[0.95rem] text-emerald-950 font-semibold">{profile.name}</div>

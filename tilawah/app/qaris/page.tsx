@@ -113,10 +113,8 @@ export default function QarisPage() {
   return (
     <div className="card">
       <Navigation profile={profile} />
-      <div className="eyebrow">
-        <span className="dot" /> {qaris.filter((q) => q.isAvailable).length} disponíveis agora
-      </div>
-      <h2 className="mb-2">Quem está disponível</h2>
+      <div className="eyebrow"><span className="dot" /> AO VIVO · {qaris.filter((q) => q.isAvailable).length} disponíveis</div>
+      <h2 className="mb-2">Encontre o seu Qari</h2>
       <p className="text-[#54544a] text-[0.9rem] mb-4">
         Escolha um Qari e envie um pedido de sessão. A chamada só começa quando ele aceitar.
       </p>
@@ -127,7 +125,7 @@ export default function QarisPage() {
           Ainda não há Qaris registados. Volte mais tarde.
         </div>
       ) : (
-        <div className="border border-gold-500/20">
+        <div className="qari-list">
           {qaris.map((q) => (
             <QariCard key={q.id} qari={q} onRequest={setSelected} onCallNow={setCallTarget} />
           ))}

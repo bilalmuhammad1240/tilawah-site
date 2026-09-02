@@ -62,7 +62,7 @@ export default function AudioCall({
 
   if (status === "failed" && errorMessage) {
     return (
-      <div className="card text-center">
+      <div className="card call-card call-surface">
         <h2 className="mb-2.5">Não foi possível ligar</h2>
         <p className="text-[#54544a] text-[0.9rem] mb-5">{errorMessage}</p>
         <button className="btn btn-primary" onClick={() => onEnd(seconds)}>
@@ -74,8 +74,8 @@ export default function AudioCall({
 
   if (mode === "incoming") {
     return (
-      <div className="card text-center">
-        <div className="avatar w-[88px] h-[88px] mx-auto mb-5 text-[2rem]">{initials(peerName)}</div>
+      <div className="card call-card call-surface">
+        <div className="avatar call-avatar">{initials(peerName)}</div>
         <div className="font-mono text-[0.78rem] uppercase tracking-[0.1em] text-maroon-600 mb-1.5">
           Chamada a receber
         </div>
@@ -95,8 +95,8 @@ export default function AudioCall({
 
   if (mode === "outgoing") {
     return (
-      <div className="card text-center">
-        <div className="avatar w-[88px] h-[88px] mx-auto mb-5 text-[2rem]">{initials(peerName)}</div>
+      <div className="card call-card call-surface">
+        <div className="avatar call-avatar">{initials(peerName)}</div>
         <div className="font-mono text-[0.78rem] uppercase tracking-[0.1em] text-maroon-600 mb-1.5">
           A chamar…
         </div>
@@ -117,17 +117,17 @@ export default function AudioCall({
   const statusOk = status === "connected";
   const cost = (seconds / 60) * ratePerMinute;
   return (
-    <div className="card text-center">
-      <div className="avatar w-[88px] h-[88px] mx-auto mb-4 text-[2rem]">{initials(peerName)}</div>
+    <div className="card call-card call-surface">
+      <div className="avatar call-avatar">{initials(peerName)}</div>
       <div className={`font-mono text-[0.78rem] uppercase tracking-[0.1em] mb-1.5 ${statusOk ? "text-okgreen" : "text-maroon-600"}`}>
         {statusOk ? "Em chamada" : "A ligar áudio…"}
       </div>
       <h2>{peerName}</h2>
-      <div className="font-mono text-[2.2rem] text-emerald-950 my-4">{fmtTime(seconds)}</div>
+      <div className="font-mono call-timer text-emerald-950 my-4">{fmtTime(seconds)}</div>
       <div className="text-[0.88rem] text-[#54544a] mb-6">
         {ratePerMinute > 0 ? (
           <>
-            Custo acumulado: <b className="font-mono text-emerald-950">{fmtMoney(cost)}</b> · {fmtMoney(ratePerMinute)}/min
+            <span className="call-cost">Custo acumulado: <b className="font-mono text-emerald-950">{fmtMoney(cost)}</b> · {fmtMoney(ratePerMinute)}/min</span>
           </>
         ) : (
           "Chamada gratuita entre alunos"

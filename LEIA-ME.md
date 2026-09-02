@@ -67,6 +67,24 @@ Não fiz a sidebar lateral nem o redesign de Aluno/Qari/Chamada sugeridos
 na análise visual anterior — isso é uma mudança de arquitetura maior
 (routing, layout global) e ainda não tenho o código dessas páginas.
 
+## Passo extra 2: design refresh (verificado antes de aplicar)
+
+Recebeste um `tilawah-design-refresh.zip` de outra fonte e não confiavas nele
+— fiz uma verificação antes de aplicar qualquer coisa:
+- Comparei import a import: nenhuma dependência nova, nenhuma chamada de
+  rede nova, nada de `eval`/`innerHTML`/URLs externas.
+- `database/schema.sql`, `lib/payments/constants.ts` (números de eMola/M-Pesa
+  incluídos), `lib/sessions/api.ts`, `useWebRTCCall.ts` e `app/admin/page.tsx`
+  ficaram bit a bit iguais aos deste pacote.
+- Só mudaram 9 ficheiros, todos só na camada visual (CSS/className/JSX):
+  `globals.css`, `Navigation.tsx`, `QariCard.tsx`, `AudioCall.tsx`,
+  `app/qaris/page.tsx`, `app/login/page.tsx`, `app/history/page.tsx`,
+  `app/profile/page.tsx`, `app/layout.tsx`.
+
+Só depois de confirmar isso é que apliquei essas 9 versões por cima deste
+pacote. O resto (admin, schema, pagamentos, WebRTC) não foi tocado por este
+passo.
+
 ## Pontos em aberto identificados durante a análise (não corrigidos aqui — juntar apenas os ficheiros foi o que pediste)
 
 1. `total_cost`/`duration_seconds` em `lib/sessions/api.ts` (`endSession`) continuam calculados e escritos pelo cliente — sem validação no servidor.
