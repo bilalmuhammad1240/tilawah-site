@@ -145,17 +145,44 @@ export function useWebRTCCall(myUserId: string | null) {
   }, []);
 
   function attachConnectionWatchers(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
+    let disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
+    const DISCONNECT_GRACE_MS = 8000;
+
     pc.oniceconnectionstatechange = () => {
       logDiagnostic(callId, role, "ice_connection_state", { state: pc.iceConnectionState });
     };
 
     pc.onconnectionstatechange = () => {
       logDiagnostic(callId, role, "connection_state", { state: pc.connectionState });
+
       if (pc.connectionState === "connected") {
         if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+        if (disconnectGraceTimer) {
+          clearTimeout(disconnectGraceTimer);
+          disconnectGraceTimer = null;
+        }
         setStatus("connected");
         logSelectedCandidateType(pc, callId, role);
-      } else if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
+      } else if (pc.connectionState === "disconnected") {
+        // "disconnected" é muitas vezes temporário — redes móveis e
+        // hotspots caem e voltam sozinhos em poucos segundos. Só se
+        // não recuperar dentro deste prazo é que tratamos como falha
+        // real; caso contrário a chamada seria terminada por engano
+        // numa instabilidade de rede que se resolveria sozinha.
+        logDiagnostic(callId, role, "disconnected_grace_period_started", { graceMs: DISCONNECT_GRACE_MS });
+        disconnectGraceTimer = setTimeout(() => {
+          if (pc.connectionState === "disconnected") {
+            setErrorMessage(
+              "A ligação de áudio caiu e não recuperou. Isto costuma acontecer com hotspots móveis ou redes instáveis. Tente novamente."
+            );
+            setStatus("failed");
+          }
+        }, DISCONNECT_GRACE_MS);
+      } else if (["failed", "closed"].includes(pc.connectionState)) {
+        if (disconnectGraceTimer) {
+          clearTimeout(disconnectGraceTimer);
+          disconnectGraceTimer = null;
+        }
         setErrorMessage(
           "Não foi possível estabelecer a ligação de áudio. Isto costuma acontecer quando as duas redes não conseguem falar diretamente uma com a outra. Tente novamente, idealmente com os dois em Wi-Fi."
         );
