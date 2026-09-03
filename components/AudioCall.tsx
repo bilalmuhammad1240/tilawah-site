@@ -41,14 +41,46 @@ export default function AudioCall({
   onEnd,
 }: Props) {
   const [seconds, setSeconds] = useState(0);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const startRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (audioRef.current && remoteStream) {
       audioRef.current.srcObject = remoteStream;
+      // Alguns navegadores móveis bloqueiam o autoplay de áudio se a
+      // ligação demorar a negociar (o "gesto do utilizador" que
+      // autorizou o autoplay já expirou). Sem isto, o áudio falha em
+      // silêncio — a pessoa não ouve nada e não há nenhum aviso.
+      const playPromise = audioRef.current.play();
+      if (playPromise) {
+        playPromise.catch(() => setAudioBlocked(true));
+      }
     }
   }, [remoteStream]);
+
+  function retryPlay() {
+    if (audioRef.current) {
+      audioRef.current.play().then(
+        () => setAudioBlocked(false),
+        () => setAudioBlocked(true)
+      );
+    }
+  }
+
+  // Enquanto o som estiver bloqueado, qualquer toque no ecrã (não só no
+  // botão) conta como gesto do utilizador para o navegador — por isso
+  // aproveitamos o primeiro toque em qualquer lado para tentar destravar
+  // sozinho, sem obrigar a pessoa a encontrar o botão certo.
+  useEffect(() => {
+    if (!audioBlocked) return;
+    function onFirstTouch() {
+      retryPlay();
+    }
+    document.addEventListener("pointerdown", onFirstTouch, { once: true });
+    return () => document.removeEventListener("pointerdown", onFirstTouch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioBlocked]);
 
   useEffect(() => {
     if (status === "connected" && startRef.current === null) {
@@ -62,7 +94,7 @@ export default function AudioCall({
 
   if (status === "failed" && errorMessage) {
     return (
-      <div className="card text-center">
+      <div className="card call-card call-surface">
         <h2 className="mb-2.5">Não foi possível ligar</h2>
         <p className="text-[#54544a] text-[0.9rem] mb-5">{errorMessage}</p>
         <button className="btn btn-primary" onClick={() => onEnd(seconds)}>
@@ -74,8 +106,8 @@ export default function AudioCall({
 
   if (mode === "incoming") {
     return (
-      <div className="card text-center">
-        <div className="avatar w-[88px] h-[88px] mx-auto mb-5 text-[2rem]">{initials(peerName)}</div>
+      <div className="card call-card call-surface">
+        <div className="avatar call-avatar">{initials(peerName)}</div>
         <div className="font-mono text-[0.78rem] uppercase tracking-[0.1em] text-maroon-600 mb-1.5">
           Chamada a receber
         </div>
@@ -95,8 +127,8 @@ export default function AudioCall({
 
   if (mode === "outgoing") {
     return (
-      <div className="card text-center">
-        <div className="avatar w-[88px] h-[88px] mx-auto mb-5 text-[2rem]">{initials(peerName)}</div>
+      <div className="card call-card call-surface">
+        <div className="avatar call-avatar">{initials(peerName)}</div>
         <div className="font-mono text-[0.78rem] uppercase tracking-[0.1em] text-maroon-600 mb-1.5">
           A chamar…
         </div>
@@ -117,17 +149,26 @@ export default function AudioCall({
   const statusOk = status === "connected";
   const cost = (seconds / 60) * ratePerMinute;
   return (
-    <div className="card text-center">
-      <div className="avatar w-[88px] h-[88px] mx-auto mb-4 text-[2rem]">{initials(peerName)}</div>
+    <div className="card call-card call-surface">
+      {audioBlocked && (
+        <button
+          onClick={retryPlay}
+          type="button"
+          className="w-full mb-4 py-3 px-4 bg-maroon-600 text-white text-[0.85rem] font-semibold animate-pulse text-center"
+        >
+          🔊 Sem som — toque aqui (ou em qualquer lado do ecrã) para ativar
+        </button>
+      )}
+      <div className="avatar call-avatar">{initials(peerName)}</div>
       <div className={`font-mono text-[0.78rem] uppercase tracking-[0.1em] mb-1.5 ${statusOk ? "text-okgreen" : "text-maroon-600"}`}>
         {statusOk ? "Em chamada" : "A ligar áudio…"}
       </div>
       <h2>{peerName}</h2>
-      <div className="font-mono text-[2.2rem] text-emerald-950 my-4">{fmtTime(seconds)}</div>
+      <div className="font-mono call-timer text-emerald-950 my-4">{fmtTime(seconds)}</div>
       <div className="text-[0.88rem] text-[#54544a] mb-6">
         {ratePerMinute > 0 ? (
           <>
-            Custo acumulado: <b className="font-mono text-emerald-950">{fmtMoney(cost)}</b> · {fmtMoney(ratePerMinute)}/min
+            <span className="call-cost">Custo acumulado: <b className="font-mono text-emerald-950">{fmtMoney(cost)}</b> · {fmtMoney(ratePerMinute)}/min</span>
           </>
         ) : (
           "Chamada gratuita entre alunos"
