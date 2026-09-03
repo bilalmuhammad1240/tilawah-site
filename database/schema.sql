@@ -264,45 +264,30 @@ create policy "calls: só chamador ou destinatário veem"
   on calls for select
   using (auth.uid() = caller_id or auth.uid() = callee_id);
 
-create policy "calls: só o chamador cria"
+drop policy if exists "calls: só o chamador cria" on calls;
+
+create policy "calls: só o chamador cria, e só para um Qari"
   on calls for insert
-  with check (auth.uid() = caller_id);
+  with check (
+    auth.uid() = caller_id
+    and exists (select 1 from profiles where id = callee_id and role = 'qari')
+  );
 
 create policy "calls: chamador ou destinatário atualizam (aceitar/recusar/terminar)"
   on calls for update
   using (auth.uid() = caller_id or auth.uid() = callee_id);
 
-create table if not exists ice_candidates (
-  id uuid primary key default uuid_generate_v4(),
-  call_id uuid not null references calls(id) on delete cascade,
-  role text not null check (role in ('caller', 'callee')),
-  candidate jsonb not null,
-  created_at timestamptz not null default now()
-);
+-- Nota: ativar "Realtime" na tabela calls no painel do Supabase
+-- (Database → Replication) para o postgres_changes funcionar.
 
-alter table ice_candidates enable row level security;
-
-create policy "ice_candidates: participantes da chamada veem"
-  on ice_candidates for select
-  using (
-    exists (
-      select 1 from calls c
-      where c.id = call_id and (c.caller_id = auth.uid() or c.callee_id = auth.uid())
-    )
-  );
-
-create policy "ice_candidates: participantes da chamada inserem"
-  on ice_candidates for insert
-  with check (
-    exists (
-      select 1 from calls c
-      where c.id = call_id and (c.caller_id = auth.uid() or c.callee_id = auth.uid())
-    )
-  );
-
--- Nota: ativar "Realtime" nas tabelas calls e ice_candidates no
--- painel do Supabase (Database → Replication) para os postgres_changes
--- funcionarem, tal como no protótipo.
+-- ============================================================
+-- Migração: candidatos ICE deixaram de ser guardados na base de
+-- dados — passaram a usar canais Broadcast do Supabase Realtime
+-- (mensagens diretas por WebSocket, sem tabela). Se a tabela
+-- ice_candidates ainda existir de uma versão anterior, pode ser
+-- removida com segurança:
+-- drop table if exists ice_candidates;
+-- ============================================================
 
 -- ============================================================
 -- Criação automática de perfil no signup

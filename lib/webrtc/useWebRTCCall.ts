@@ -8,8 +8,8 @@ import { createClient } from "@/lib/supabase/client";
 // certas redes móveis, firewalls corporativas). O TURN faz o relay do
 // áudio nesse caso. Estas credenciais do Open Relay Project são uma pool
 // pública partilhada: gratuita, sem registo, mas sem garantias. Para
-// produção, substituir por um serviço TURN dedicado (Metered, ExpressTURN,
-// Xirsys), conforme a secção 12 do plano.
+// produção, substituir por um serviço TURN dedicado (Xirsys, Twilio,
+// Metered), conforme a secção 12 do plano.
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -24,14 +24,19 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 const CONNECT_TIMEOUT_MS = 25000;
-// Rede de segurança: já vimos o tempo real do Supabase falhar em
-// entregar eventos (chamadas perdidas, e agora possivelmente a
-// resposta SDP também). Isto verifica diretamente na base de dados,
-// em paralelo à subscrição em tempo real, para nunca depender só do
-// WebSocket para a parte crítica da ligação.
-const POLL_INTERVAL_MS = 3000;
+// Rede de segurança para a resposta SDP (guardada em `calls`, já
+// comprovada a funcionar em testes reais): se o UPDATE em tempo real
+// não chegar, vai buscá-la diretamente à base de dados.
+const ANSWER_POLL_INTERVAL_MS = 3000;
+// Rede de segurança para os candidatos ICE (agora só por Broadcast, sem
+// tabela): reenviar os candidatos locais periodicamente cobre o caso de
+// o outro lado ainda não ter entrado no canal quando o primeiro envio
+// aconteceu.
+const CANDIDATE_RESEND_INTERVAL_MS = 3000;
 
 export type CallStatus = "idle" | "ringing" | "connecting" | "connected" | "failed" | "ended";
+
+type IceRole = "caller" | "callee";
 
 export function useWebRTCCall(myUserId: string | null) {
   const supabase = createClient();
@@ -44,16 +49,16 @@ export function useWebRTCCall(myUserId: string | null) {
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const iceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const appliedCandidateIdsRef = useRef<Set<string>>(new Set());
+  const answerPollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const candidateResendHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const answerAppliedRef = useRef(false);
+  const localCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const appliedRemoteCandidatesRef = useRef<Set<string>>(new Set());
 
   // Nunca regista áudio nem conteúdo — só metadados técnicos da ligação
   // (secção 12 do plano: "guardar eventos de conexão para diagnóstico,
-  // sem gravar áudio por padrão"). Útil para perceber, depois de um
-  // teste em redes diferentes, se a chamada usou ligação direta, STUN
-  // ou teve de cair para o relay TURN.
-  function logDiagnostic(callId: string, role: "caller" | "callee", event: string, detail: Record<string, any> = {}) {
+  // sem gravar áudio por padrão").
+  function logDiagnostic(callId: string, role: IceRole, event: string, detail: Record<string, any> = {}) {
     if (!myUserId) return;
     supabase.from("call_diagnostics").insert({ call_id: callId, user_id: myUserId, role, event, detail }).then(
       () => {},
@@ -61,7 +66,7 @@ export function useWebRTCCall(myUserId: string | null) {
     );
   }
 
-  async function logSelectedCandidateType(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
+  async function logSelectedCandidateType(pc: RTCPeerConnection, callId: string, role: IceRole) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const stats = await pc.getStats();
@@ -84,7 +89,6 @@ export function useWebRTCCall(myUserId: string | null) {
           return;
         }
       } catch {
-        // getStats pode falhar em navegadores mais antigos — não é crítico
         return;
       }
       await new Promise((r) => setTimeout(r, 400));
@@ -118,10 +122,13 @@ export function useWebRTCCall(myUserId: string | null) {
   const cleanup = useCallback(() => {
     if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
     connectTimeoutRef.current = null;
-    if (pollHandleRef.current) clearInterval(pollHandleRef.current);
-    pollHandleRef.current = null;
-    appliedCandidateIdsRef.current = new Set();
+    if (answerPollHandleRef.current) clearInterval(answerPollHandleRef.current);
+    answerPollHandleRef.current = null;
+    if (candidateResendHandleRef.current) clearInterval(candidateResendHandleRef.current);
+    candidateResendHandleRef.current = null;
     answerAppliedRef.current = false;
+    localCandidatesRef.current = [];
+    appliedRemoteCandidatesRef.current = new Set();
     if (callChannelRef.current) {
       supabase.removeChannel(callChannelRef.current);
       callChannelRef.current = null;
@@ -144,7 +151,45 @@ export function useWebRTCCall(myUserId: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function attachConnectionWatchers(pc: RTCPeerConnection, callId: string, role: "caller" | "callee") {
+  // Canal de sinalização por WebSocket (Supabase Realtime Broadcast) só
+  // para candidatos ICE — mensagens diretas entre os dois participantes,
+  // sem passar pela base de dados. A oferta/resposta SDP continua a usar
+  // a tabela `calls` (já comprovada fiável nos testes) porque só precisa
+  // de ser entregue uma vez, ao contrário dos candidatos que podem ser
+  // vários e chegar em qualquer ordem.
+  function setupIceBroadcastChannel(
+    callId: string,
+    myRole: IceRole,
+    onRemoteCandidate: (candidate: RTCIceCandidateInit) => void
+  ) {
+    const channel = supabase.channel("ice-broadcast-" + callId, { config: { broadcast: { self: false } } });
+    channel
+      .on("broadcast", { event: "ice-candidate" }, (payload) => {
+        const msg = payload.payload as { role: IceRole; candidate: RTCIceCandidateInit };
+        if (msg.role === myRole) return; // eco do próprio lado, ignorar
+        const key = JSON.stringify(msg.candidate);
+        if (appliedRemoteCandidatesRef.current.has(key)) return;
+        appliedRemoteCandidatesRef.current.add(key);
+        onRemoteCandidate(msg.candidate);
+      })
+      .subscribe();
+    iceChannelRef.current = channel;
+
+    function sendCandidate(candidate: RTCIceCandidateInit) {
+      channel.send({ type: "broadcast", event: "ice-candidate", payload: { role: myRole, candidate } });
+    }
+
+    // Reenvia periodicamente os candidatos locais já gerados — cobre o
+    // caso de o outro lado ainda não ter entrado no canal no momento do
+    // primeiro envio (Broadcast só entrega a quem já está subscrito).
+    candidateResendHandleRef.current = setInterval(() => {
+      localCandidatesRef.current.forEach(sendCandidate);
+    }, CANDIDATE_RESEND_INTERVAL_MS);
+
+    return sendCandidate;
+  }
+
+  function attachConnectionWatchers(pc: RTCPeerConnection, callId: string, role: IceRole) {
     let disconnectGraceTimer: ReturnType<typeof setTimeout> | null = null;
     const DISCONNECT_GRACE_MS = 8000;
 
@@ -167,8 +212,7 @@ export function useWebRTCCall(myUserId: string | null) {
         // "disconnected" é muitas vezes temporário — redes móveis e
         // hotspots caem e voltam sozinhos em poucos segundos. Só se
         // não recuperar dentro deste prazo é que tratamos como falha
-        // real; caso contrário a chamada seria terminada por engano
-        // numa instabilidade de rede que se resolveria sozinha.
+        // real.
         logDiagnostic(callId, role, "disconnected_grace_period_started", { graceMs: DISCONNECT_GRACE_MS });
         disconnectGraceTimer = setTimeout(() => {
           if (pc.connectionState === "disconnected") {
@@ -194,9 +238,7 @@ export function useWebRTCCall(myUserId: string | null) {
       setStatus((current) => {
         if (current !== "connected") {
           logDiagnostic(callId, role, "connect_timeout", { afterMs: CONNECT_TIMEOUT_MS });
-          setErrorMessage(
-            "A chamada demorou demasiado tempo a ligar. Verifique a rede e tente novamente."
-          );
+          setErrorMessage("A chamada demorou demasiado tempo a ligar. Verifique a rede e tente novamente.");
           return "failed";
         }
         return current;
@@ -218,28 +260,6 @@ export function useWebRTCCall(myUserId: string | null) {
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       pc.ontrack = (ev) => setRemoteStream(ev.streams[0]);
-
-      let callId: string | null = null;
-      const pending: RTCIceCandidateInit[] = [];
-      let localCandidateCount = 0;
-      pc.onicecandidate = (ev) => {
-        if (!ev.candidate) {
-          if (callId) logDiagnostic(callId, "caller", "ice_gathering_complete", { localCandidateCount });
-          return;
-        }
-        localCandidateCount++;
-        const json = ev.candidate.toJSON();
-        if (callId) {
-          supabase
-            .from("ice_candidates")
-            .insert({ call_id: callId, role: "caller", candidate: json })
-            .then(({ error }) => {
-              if (error) logDiagnostic(callId as string, "caller", "ice_insert_failed", { message: error.message });
-            });
-        } else {
-          pending.push(json);
-        }
-      };
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -263,18 +283,23 @@ export function useWebRTCCall(myUserId: string | null) {
         return null;
       }
 
-      callId = row.id;
-      // `callId` acima fica com o tipo string|null aos olhos do TypeScript
-      // a partir daqui, porque é capturado pelos closures abaixo (o
-      // compilador não consegue provar que não é reatribuído entretanto).
-      // `confirmedCallId` fixa o tipo string para o resto da função.
       const confirmedCallId: string = row.id;
 
-      for (const cand of pending) {
-        await supabase
-          .from("ice_candidates")
-          .insert({ call_id: confirmedCallId, role: "caller", candidate: cand });
-      }
+      const sendCandidate = setupIceBroadcastChannel(confirmedCallId, "caller", (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+      });
+
+      pc.onicecandidate = (ev) => {
+        if (!ev.candidate) {
+          logDiagnostic(confirmedCallId, "caller", "ice_gathering_complete", {
+            localCandidateCount: localCandidatesRef.current.length,
+          });
+          return;
+        }
+        const json = ev.candidate.toJSON();
+        localCandidatesRef.current.push(json);
+        sendCandidate(json);
+      };
 
       async function applyAnswerIfPresent(updated: any, via: "realtime" | "polling") {
         if (answerAppliedRef.current) return;
@@ -305,45 +330,13 @@ export function useWebRTCCall(myUserId: string | null) {
         )
         .subscribe();
 
-      iceChannelRef.current = supabase
-        .channel("ice-" + confirmedCallId + "-caller")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + confirmedCallId },
-          (payload) => {
-            const cand = payload.new as any;
-            if (cand.role === "callee" && !appliedCandidateIdsRef.current.has(cand.id)) {
-              appliedCandidateIdsRef.current.add(cand.id);
-              pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
-            }
-          }
-        )
-        .subscribe();
-
       // Rede de segurança: se o UPDATE com a resposta do Qari nunca
-      // chegar por tempo real (já vimos isto falhar noutros eventos),
-      // vai buscá-la diretamente à base de dados a cada poucos segundos.
-      // O mesmo para candidatos ICE que possam ter ficado por entregar.
-      pollHandleRef.current = setInterval(async () => {
-        if (!answerAppliedRef.current) {
-          const { data } = await supabase.from("calls").select("*").eq("id", confirmedCallId).maybeSingle();
-          if (data) await applyAnswerIfPresent(data, "polling");
-        }
-        const { data: candidates, error: pollError } = await supabase
-          .from("ice_candidates")
-          .select("*")
-          .eq("call_id", confirmedCallId)
-          .eq("role", "callee");
-        if (pollError) {
-          logDiagnostic(confirmedCallId, "caller", "ice_poll_failed", { message: pollError.message });
-        }
-        (candidates ?? []).forEach((cand: any) => {
-          if (!appliedCandidateIdsRef.current.has(cand.id)) {
-            appliedCandidateIdsRef.current.add(cand.id);
-            pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
-          }
-        });
-      }, POLL_INTERVAL_MS);
+      // chegar por tempo real, vai buscá-la diretamente à base de dados.
+      answerPollHandleRef.current = setInterval(async () => {
+        if (answerAppliedRef.current) return;
+        const { data } = await supabase.from("calls").select("*").eq("id", confirmedCallId).maybeSingle();
+        if (data) await applyAnswerIfPresent(data, "polling");
+      }, ANSWER_POLL_INTERVAL_MS);
 
       logDiagnostic(confirmedCallId, "caller", "call_started", {});
       attachConnectionWatchers(pc, confirmedCallId, "caller");
@@ -366,19 +359,20 @@ export function useWebRTCCall(myUserId: string | null) {
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       pc.ontrack = (ev) => setRemoteStream(ev.streams[0]);
 
-      let calleeLocalCandidateCount = 0;
+      const sendCandidate = setupIceBroadcastChannel(call.id, "callee", (candidate) => {
+        pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+      });
+
       pc.onicecandidate = (ev) => {
         if (!ev.candidate) {
-          logDiagnostic(call.id, "callee", "ice_gathering_complete", { localCandidateCount: calleeLocalCandidateCount });
+          logDiagnostic(call.id, "callee", "ice_gathering_complete", {
+            localCandidateCount: localCandidatesRef.current.length,
+          });
           return;
         }
-        calleeLocalCandidateCount++;
-        supabase
-          .from("ice_candidates")
-          .insert({ call_id: call.id, role: "callee", candidate: ev.candidate.toJSON() })
-          .then(({ error }) => {
-            if (error) logDiagnostic(call.id, "callee", "ice_insert_failed", { message: error.message });
-          });
+        const json = ev.candidate.toJSON();
+        localCandidatesRef.current.push(json);
+        sendCandidate(json);
       };
 
       await pc.setRemoteDescription(new RTCSessionDescription(call.offer));
@@ -410,40 +404,6 @@ export function useWebRTCCall(myUserId: string | null) {
           }
         )
         .subscribe();
-
-      iceChannelRef.current = supabase
-        .channel("ice-" + call.id + "-callee")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "ice_candidates", filter: "call_id=eq." + call.id },
-          (payload) => {
-            const cand = payload.new as any;
-            if (cand.role === "caller" && !appliedCandidateIdsRef.current.has(cand.id)) {
-              appliedCandidateIdsRef.current.add(cand.id);
-              pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
-            }
-          }
-        )
-        .subscribe();
-
-      // Rede de segurança: candidatos ICE do chamador que o tempo real
-      // não tenha entregue.
-      pollHandleRef.current = setInterval(async () => {
-        const { data: candidates, error: pollError } = await supabase
-          .from("ice_candidates")
-          .select("*")
-          .eq("call_id", call.id)
-          .eq("role", "caller");
-        if (pollError) {
-          logDiagnostic(call.id, "callee", "ice_poll_failed", { message: pollError.message });
-        }
-        (candidates ?? []).forEach((cand: any) => {
-          if (!appliedCandidateIdsRef.current.has(cand.id)) {
-            appliedCandidateIdsRef.current.add(cand.id);
-            pc.addIceCandidate(new RTCIceCandidate(cand.candidate)).catch(() => {});
-          }
-        });
-      }, POLL_INTERVAL_MS);
 
       logDiagnostic(call.id, "callee", "call_accepted", {});
       attachConnectionWatchers(pc, call.id, "callee");
