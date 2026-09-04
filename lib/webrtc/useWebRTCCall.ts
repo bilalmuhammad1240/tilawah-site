@@ -6,22 +6,32 @@ import { createClient } from "@/lib/supabase/client";
 // STUN sozinho só diz a cada lado o seu próprio endereço público — não
 // ajuda quando não é possível estabelecer ligação direta (NAT simétrico,
 // certas redes móveis, firewalls corporativas). O TURN faz o relay do
-// áudio nesse caso. Estas credenciais do Open Relay Project são uma pool
-// pública partilhada: gratuita, sem registo, mas sem garantias. Para
-// produção, substituir por um serviço TURN dedicado (Xirsys, Twilio,
-// Metered), conforme a secção 12 do plano.
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-  ],
-};
+// áudio nesse caso. As credenciais reais vêm de /api/turn-credentials
+// (Xirsys, geradas no servidor) — isto aqui é só a reserva caso essa
+// chamada falhe, para o site nunca ficar completamente sem TURN.
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+];
+
+async function getIceServers(): Promise<RTCConfiguration> {
+  try {
+    const res = await fetch("/api/turn-credentials");
+    const data = await res.json();
+    if (data?.iceServers?.length) {
+      return { iceServers: data.iceServers };
+    }
+  } catch {
+    // sem rede para o endpoint próprio — usa a reserva abaixo
+  }
+  return { iceServers: FALLBACK_ICE_SERVERS };
+}
 
 const CONNECT_TIMEOUT_MS = 25000;
 // Rede de segurança para a resposta SDP (guardada em `calls`, já
@@ -256,7 +266,8 @@ export function useWebRTCCall(myUserId: string | null) {
       setStatus("ringing");
       setErrorMessage(null);
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const iceConfig = await getIceServers();
+      const pc = new RTCPeerConnection(iceConfig);
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       pc.ontrack = (ev) => setRemoteStream(ev.streams[0]);
@@ -354,7 +365,8 @@ export function useWebRTCCall(myUserId: string | null) {
       setStatus("connecting");
       setErrorMessage(null);
 
-      const pc = new RTCPeerConnection(ICE_SERVERS);
+      const iceConfig = await getIceServers();
+      const pc = new RTCPeerConnection(iceConfig);
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       pc.ontrack = (ev) => setRemoteStream(ev.streams[0]);
