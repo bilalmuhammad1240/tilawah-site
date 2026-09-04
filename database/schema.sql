@@ -212,9 +212,28 @@ create policy "notifications: só o destinatário vê"
   on notifications for select
   using (auth.uid() = user_id);
 
-create policy "notifications: qualquer utilizador autenticado pode criar (para avisar outro participante)"
+drop policy if exists "notifications: qualquer utilizador autenticado pode criar (para avisar outro participante)" on notifications;
+
+-- Antes, qualquer utilizador autenticado podia criar uma notificação
+-- para qualquer outro (aceitável só enquanto MVP em teste). Agora exige
+-- que exista mesmo uma sessão de recitação a ligar quem cria a quem
+-- recebe — impede alguém de notificar (ou assediar) um utilizador com
+-- quem nunca teve nenhuma interação real na plataforma.
+create policy "notifications: só entre participantes da mesma sessão"
   on notifications for insert
-  with check (auth.uid() is not null);
+  with check (
+    auth.uid() is not null
+    and payload ? 'sessionId'
+    and exists (
+      select 1 from recitation_sessions s
+      where s.id = (payload->>'sessionId')::uuid
+        and (
+          (s.student_id = auth.uid() and s.qari_id = user_id)
+          or
+          (s.qari_id = auth.uid() and s.student_id = user_id)
+        )
+    )
+  );
 
 create policy "notifications: só o destinatário marca como lida"
   on notifications for update

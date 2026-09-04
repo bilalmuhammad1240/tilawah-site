@@ -16,7 +16,7 @@ export type NotificationRow = {
   created_at: string;
 };
 
-export async function createNotification(userId: string, type: NotificationType, message: string, sessionId?: string) {
+export async function createNotification(userId: string, type: NotificationType, message: string, sessionId: string) {
   const supabase = createClient();
   return supabase.from("notifications").insert({
     user_id: userId,
