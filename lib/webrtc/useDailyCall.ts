@@ -111,8 +111,9 @@ export function useDailyCall(myUserId: string | null) {
 
       const roomRes = await fetch("/api/daily-room", { method: "POST" });
       if (!roomRes.ok) {
+        const body = await roomRes.json().catch(() => ({}));
         setStatus("failed");
-        setErrorMessage("Não foi possível criar a sala de chamada. Tente novamente.");
+        setErrorMessage(body?.error || "Não foi possível criar a sala de chamada. Tente novamente.");
         return null;
       }
       const room = await roomRes.json();

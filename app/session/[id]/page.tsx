@@ -264,6 +264,19 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   }
 
   if (session.status === "accepted") {
+    if (webrtc.status === "failed") {
+      return (
+        <div className="card text-center">
+          <h2 className="mb-2">Não foi possível ligar</h2>
+          <p className="text-[#54544a] text-[0.9rem] mb-5">
+            {webrtc.errorMessage || "Ocorreu um erro ao iniciar a chamada."}
+          </p>
+          <button className="btn btn-primary" onClick={() => window.location.reload()}>
+            Tentar novamente
+          </button>
+        </div>
+      );
+    }
     return <div className="card text-center text-[#8a8a7d]">A ligar a chamada…</div>;
   }
 
