@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
-import { useWebRTCCall } from "@/lib/webrtc/useWebRTCCall";
+import { useDailyCall } from "@/lib/webrtc/useDailyCall";
 import AudioCall from "@/components/AudioCall";
 import FeedbackForm from "@/components/FeedbackForm";
 import { acceptSession, rejectSession, endSession } from "@/lib/sessions/api";
@@ -34,7 +34,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
 
-  const webrtc = useWebRTCCall(profile?.id ?? null);
+  const webrtc = useDailyCall(profile?.id ?? null);
 
   const loadSession = useCallback(async () => {
     const { data } = await supabase
@@ -145,7 +145,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   }
 
   async function handleAcceptIncomingCall() {
-    const ok = await webrtc.acceptCall({ id: incomingCall.id, offer: incomingCall.offer });
+    const ok = await webrtc.acceptCall({ id: incomingCall.id, dailyRoomUrl: incomingCall.daily_room_url });
     if (ok) setActiveCallId(incomingCall.id);
     setIncomingCall(null);
   }

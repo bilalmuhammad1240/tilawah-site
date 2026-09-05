@@ -268,8 +268,8 @@ create table if not exists calls (
   session_id uuid references recitation_sessions(id),
   caller_id uuid not null references profiles(id),
   callee_id uuid not null references profiles(id),
-  offer jsonb,
-  answer jsonb,
+  daily_room_url text,
+  daily_room_name text,
   status text not null default 'ringing'
     check (status in ('ringing', 'accepted', 'rejected', 'ended')),
   ended_by uuid references profiles(id),
@@ -298,6 +298,18 @@ create policy "calls: chamador ou destinatário atualizam (aceitar/recusar/termi
 
 -- Nota: ativar "Realtime" na tabela calls no painel do Supabase
 -- (Database → Replication) para o postgres_changes funcionar.
+
+-- ============================================================
+-- Migração: WebRTC próprio → Daily.co
+-- A sinalização (oferta/resposta SDP, candidatos ICE) e o TURN
+-- deixaram de ser geridos por nós — a Daily trata disso via SDK.
+-- `calls` passa a guardar só o URL da sala Daily, não mais SDP.
+-- ============================================================
+alter table calls add column if not exists daily_room_url text;
+alter table calls add column if not exists daily_room_name text;
+alter table calls drop column if exists offer;
+alter table calls drop column if exists answer;
+drop table if exists ice_candidates;
 
 -- ============================================================
 -- Migração: candidatos ICE deixaram de ser guardados na base de

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CallStatus } from "@/lib/webrtc/useWebRTCCall";
+import type { CallStatus } from "@/lib/webrtc/useDailyCall";
 
 function initials(name: string) {
   return (name || "?").trim().slice(0, 1).toUpperCase();
