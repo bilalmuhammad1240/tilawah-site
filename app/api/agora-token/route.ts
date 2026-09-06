@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
       channelName,
       uid,
       RtcRole.PUBLISHER,
-      expireAt,
       expireAt
     );
     return NextResponse.json({ token });
