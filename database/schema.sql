@@ -268,8 +268,7 @@ create table if not exists calls (
   session_id uuid references recitation_sessions(id),
   caller_id uuid not null references profiles(id),
   callee_id uuid not null references profiles(id),
-  daily_room_url text,
-  daily_room_name text,
+  agora_channel_name text,
   status text not null default 'ringing'
     check (status in ('ringing', 'accepted', 'rejected', 'ended')),
   ended_by uuid references profiles(id),
@@ -300,13 +299,15 @@ create policy "calls: chamador ou destinatário atualizam (aceitar/recusar/termi
 -- (Database → Replication) para o postgres_changes funcionar.
 
 -- ============================================================
--- Migração: WebRTC próprio → Daily.co
--- A sinalização (oferta/resposta SDP, candidatos ICE) e o TURN
--- deixaram de ser geridos por nós — a Daily trata disso via SDK.
--- `calls` passa a guardar só o URL da sala Daily, não mais SDP.
+-- Migração: WebRTC próprio → Daily.co → Agora.io
+-- A sinalização e o TURN continuam geridos por um SDK externo — só
+-- trocámos de fornecedor. `calls` guarda agora só o nome do canal
+-- Agora; o token de entrada é gerado on-demand pelo servidor
+-- (app/api/agora-token), nunca fica guardado na base de dados.
 -- ============================================================
-alter table calls add column if not exists daily_room_url text;
-alter table calls add column if not exists daily_room_name text;
+alter table calls add column if not exists agora_channel_name text;
+alter table calls drop column if exists daily_room_url;
+alter table calls drop column if exists daily_room_name;
 alter table calls drop column if exists offer;
 alter table calls drop column if exists answer;
 drop table if exists ice_candidates;

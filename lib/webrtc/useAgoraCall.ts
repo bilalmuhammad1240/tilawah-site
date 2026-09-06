@@ -1,22 +1,50 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import DailyIframe, { DailyCall } from "@daily-co/daily-js";
+import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack } from "agora-rtc-sdk-ng";
 import { createClient } from "@/lib/supabase/client";
 
 export type CallStatus = "idle" | "ringing" | "connecting" | "connected" | "failed" | "ended";
 
-// Toda a sinalização, TURN/ICE e reconexão passam a ser tratados pelo
-// SDK da Daily.co — este hook só faz a ponte entre isso e o resto da
-// app (que continua a usar a tabela `calls` do Supabase só para saber
-// quem está a ligar a quem e em que estado, não para trocar SDP).
-export function useDailyCall(myUserId: string | null) {
+const APP_ID = process.env.NEXT_PUBLIC_AGORA_APP_ID as string;
+const CONNECT_TIMEOUT_MS = 25000;
+
+function randomUid() {
+  return Math.floor(Math.random() * 1_000_000_000);
+}
+
+function randomChannelName() {
+  return "tilawah-" + Math.random().toString(36).slice(2, 12);
+}
+
+async function fetchToken(channelName: string, uid: number): Promise<string | null> {
+  try {
+    const res = await fetch("/api/agora-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelName, uid }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Sinalização, atravessamento de NAT/firewall (TURN interno da Agora)
+// e reconexão de rede são todos tratados pelo SDK — este hook só faz a
+// ponte entre isso e a tabela `calls` do Supabase, que continua a
+// servir só para saber quem está a ligar a quem e em que estado
+// (pedido, aceite, recusado, terminado), não para trocar media.
+export function useAgoraCall(myUserId: string | null) {
   const supabase = createClient();
   const [status, setStatus] = useState<CallStatus>("idle");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const callObjectRef = useRef<DailyCall | null>(null);
+  const clientRef = useRef<IAgoraRTCClient | null>(null);
+  const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -28,12 +56,16 @@ export function useDailyCall(myUserId: string | null) {
     );
   }
 
-  function micErrorMessage(e: any): string {
-    const name = e?.errorMsg || e?.name || "";
-    if (String(name).toLowerCase().includes("permission")) {
+  function joinErrorMessage(e: any): string {
+    const raw = String(e?.message || e?.code || "");
+    const lower = raw.toLowerCase();
+    if (lower.includes("permission") || lower.includes("notallowed")) {
       return "A permissão do microfone foi recusada. Ative-a nas definições do navegador para este site e tente novamente.";
     }
-    return "O navegador não conseguiu aceder ao microfone (" + (e?.errorMsg || e?.message || name) + ").";
+    if (lower.includes("token") || lower.includes("invalid_params") || lower.includes("dynamic_key")) {
+      return "Não foi possível autenticar a chamada (problema com a configuração da Agora no servidor). Avise o administrador da plataforma.";
+    }
+    return "Não foi possível entrar na chamada (" + (raw || "erro desconhecido") + ").";
   }
 
   const cleanup = useCallback(() => {
@@ -43,63 +75,78 @@ export function useDailyCall(myUserId: string | null) {
       supabase.removeChannel(callChannelRef.current);
       callChannelRef.current = null;
     }
-    if (callObjectRef.current) {
+    if (micTrackRef.current) {
       try {
-        callObjectRef.current.leave();
-        callObjectRef.current.destroy();
+        micTrackRef.current.close();
       } catch {}
-      callObjectRef.current = null;
+      micTrackRef.current = null;
+    }
+    if (clientRef.current) {
+      try {
+        clientRef.current.leave();
+      } catch {}
+      clientRef.current = null;
     }
     setRemoteStream(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function attachDailyEvents(call: DailyCall, callId: string, role: "caller" | "callee") {
-    call.on("joined-meeting", () => {
-      logDiagnostic(callId, role, "joined_room", {});
-    });
+  async function joinChannel(channelName: string, callId: string, role: "caller" | "callee") {
+    const uid = randomUid();
+    const token = await fetchToken(channelName, uid);
+    if (!token) {
+      setErrorMessage("Não foi possível autenticar a chamada. Verifique a configuração da Agora no servidor.");
+      setStatus("failed");
+      return false;
+    }
 
-    call.on("track-started", (ev: any) => {
-      if (ev?.participant && !ev.participant.local && ev.track?.kind === "audio") {
+    const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+    clientRef.current = client;
+
+    client.on("user-published", async (user, mediaType) => {
+      await client.subscribe(user, mediaType);
+      if (mediaType === "audio" && user.audioTrack) {
         if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
-        setRemoteStream(new MediaStream([ev.track]));
+        setRemoteStream(new MediaStream([user.audioTrack.getMediaStreamTrack()]));
         setStatus("connected");
         logDiagnostic(callId, role, "remote_audio_started", {});
       }
     });
 
-    call.on("network-quality-change", (ev: any) => {
-      logDiagnostic(callId, role, "network_quality", { quality: ev?.threshold });
+    client.on("user-left", () => {
+      logDiagnostic(callId, role, "remote_left", {});
+      setStatus("ended");
+      cleanup();
     });
 
-    call.on("participant-left", (ev: any) => {
-      if (ev?.participant && !ev.participant.local) {
-        logDiagnostic(callId, role, "remote_left", {});
-        setStatus("ended");
-        cleanup();
-      }
+    client.on("connection-state-change", (curState) => {
+      logDiagnostic(callId, role, "connection_state", { state: curState });
     });
 
-    call.on("error", (ev: any) => {
-      logDiagnostic(callId, role, "daily_error", { message: ev?.errorMsg });
-      setErrorMessage(
-        "Não foi possível estabelecer a ligação de áudio. Verifique a rede e tente novamente. (" +
-          (ev?.errorMsg || "erro desconhecido") +
-          ")"
-      );
+    try {
+      await client.join(APP_ID, channelName, token, uid);
+      const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      micTrackRef.current = micTrack;
+      await client.publish([micTrack]);
+      logDiagnostic(callId, role, "joined_channel", { uid });
+    } catch (e) {
+      setErrorMessage(joinErrorMessage(e));
       setStatus("failed");
-    });
+      return false;
+    }
 
     connectTimeoutRef.current = setTimeout(() => {
       setStatus((current) => {
         if (current !== "connected") {
-          logDiagnostic(callId, role, "connect_timeout", { afterMs: 25000 });
+          logDiagnostic(callId, role, "connect_timeout", { afterMs: CONNECT_TIMEOUT_MS });
           setErrorMessage("A chamada demorou demasiado tempo a ligar. Verifique a rede e tente novamente.");
           return "failed";
         }
         return current;
       });
-    }, 25000);
+    }, CONNECT_TIMEOUT_MS);
+
+    return true;
   }
 
   // ---- Chamador ----
@@ -109,14 +156,7 @@ export function useDailyCall(myUserId: string | null) {
       setStatus("ringing");
       setErrorMessage(null);
 
-      const roomRes = await fetch("/api/daily-room", { method: "POST" });
-      if (!roomRes.ok) {
-        const body = await roomRes.json().catch(() => ({}));
-        setStatus("failed");
-        setErrorMessage(body?.error || "Não foi possível criar a sala de chamada. Tente novamente.");
-        return null;
-      }
-      const room = await roomRes.json();
+      const channelName = randomChannelName();
 
       const { data: row, error } = await supabase
         .from("calls")
@@ -124,8 +164,7 @@ export function useDailyCall(myUserId: string | null) {
           caller_id: myUserId,
           callee_id: params.calleeId,
           session_id: params.sessionId ?? null,
-          daily_room_url: room.url,
-          daily_room_name: room.name,
+          agora_channel_name: channelName,
           status: "ringing",
         })
         .select()
@@ -138,19 +177,9 @@ export function useDailyCall(myUserId: string | null) {
       }
 
       const confirmedCallId: string = row.id;
-
-      const call = DailyIframe.createCallObject({ audioSource: true, videoSource: false });
-      callObjectRef.current = call;
-      attachDailyEvents(call, confirmedCallId, "caller");
-
-      try {
-        setStatus("connecting");
-        await call.join({ url: room.url, startVideoOff: true });
-      } catch (e) {
-        setErrorMessage(micErrorMessage(e));
-        setStatus("failed");
-        return null;
-      }
+      setStatus("connecting");
+      const ok = await joinChannel(channelName, confirmedCallId, "caller");
+      if (!ok) return null;
 
       // A app continua a usar `calls` só para saber quando o Qari
       // recusa ou termina — a ligação de áudio em si já não depende
@@ -181,21 +210,12 @@ export function useDailyCall(myUserId: string | null) {
 
   // ---- Destinatário ----
   const acceptCall = useCallback(
-    async (call: { id: string; dailyRoomUrl: string }) => {
+    async (call: { id: string; agoraChannelName: string }) => {
       setStatus("connecting");
       setErrorMessage(null);
 
-      const dailyCall = DailyIframe.createCallObject({ audioSource: true, videoSource: false });
-      callObjectRef.current = dailyCall;
-      attachDailyEvents(dailyCall, call.id, "callee");
-
-      try {
-        await dailyCall.join({ url: call.dailyRoomUrl, startVideoOff: true });
-      } catch (e) {
-        setErrorMessage(micErrorMessage(e));
-        setStatus("failed");
-        return false;
-      }
+      const ok = await joinChannel(call.agoraChannelName, call.id, "callee");
+      if (!ok) return false;
 
       await supabase.from("calls").update({ status: "accepted" }).eq("id", call.id);
 

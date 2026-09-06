@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/lib/auth/useUser";
 import { createClient } from "@/lib/supabase/client";
-import { useDailyCall } from "@/lib/webrtc/useDailyCall";
+import { useAgoraCall } from "@/lib/webrtc/useAgoraCall";
 import AudioCall from "@/components/AudioCall";
 import FeedbackForm from "@/components/FeedbackForm";
 import { acceptSession, rejectSession, endSession } from "@/lib/sessions/api";
@@ -34,7 +34,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [savingFeedback, setSavingFeedback] = useState(false);
 
-  const webrtc = useDailyCall(profile?.id ?? null);
+  const webrtc = useAgoraCall(profile?.id ?? null);
 
   const loadSession = useCallback(async () => {
     const { data } = await supabase
@@ -145,7 +145,7 @@ export default function SessionPage({ params }: { params: { id: string } }) {
   }
 
   async function handleAcceptIncomingCall() {
-    const ok = await webrtc.acceptCall({ id: incomingCall.id, dailyRoomUrl: incomingCall.daily_room_url });
+    const ok = await webrtc.acceptCall({ id: incomingCall.id, agoraChannelName: incomingCall.agora_channel_name });
     if (ok) setActiveCallId(incomingCall.id);
     setIncomingCall(null);
   }
