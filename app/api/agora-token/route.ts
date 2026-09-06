@@ -25,14 +25,19 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const expireAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
+    // Confirmado na documentação oficial da Agora: tokenExpire e
+    // privilegeExpire são DURAÇÕES em segundos a partir de agora
+    // (ex.: 3600 = "expira daqui a 1 hora"), não timestamps absolutos.
+    // Usar os dois com o mesmo valor é a prática recomendada quando não
+    // há necessidade de os separar (o nosso caso).
     const token = RtcTokenBuilder.buildTokenWithUid(
       appId,
       appCertificate,
       channelName,
       uid,
       RtcRole.PUBLISHER,
-      expireAt
+      TOKEN_TTL_SECONDS,
+      TOKEN_TTL_SECONDS
     );
     return NextResponse.json({ token });
   } catch (e: any) {
