@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CallStatus } from "@/lib/webrtc/useAgoraCall";
 
 function initials(name: string) {
@@ -19,81 +19,64 @@ type Props = {
   peerName: string;
   ratePerMinute: number;
   status: CallStatus;
-  remoteStream: MediaStream | null;
   errorMessage: string | null;
   mode: "outgoing" | "incoming" | "in-call";
   isMuted?: boolean;
   onToggleMute?: () => void;
+  audioBlocked?: boolean;
+  onRetryAudio?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
   onCancel?: () => void;
   onEnd: (durationSeconds: number) => void;
 };
 
+// A reprodução do áudio remoto já não é gerida aqui — é feita pela
+// própria SDK da Agora (via track.play(), chamado no hook), que trata
+// corretamente da integração com o cancelamento de eco. Este
+// componente só mostra o aviso quando essa reprodução é bloqueada pela
+// política de autoplay do browser.
 export default function AudioCall({
   peerName,
   ratePerMinute,
   status,
-  remoteStream,
   errorMessage,
   mode,
   isMuted,
   onToggleMute,
+  audioBlocked,
+  onRetryAudio,
   onAccept,
   onReject,
   onCancel,
   onEnd,
 }: Props) {
   const [seconds, setSeconds] = useState(0);
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const startRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (audioRef.current && remoteStream) {
-      audioRef.current.srcObject = remoteStream;
-      // Alguns navegadores móveis bloqueiam o autoplay de áudio se a
-      // ligação demorar a negociar (o "gesto do utilizador" que
-      // autorizou o autoplay já expirou). Sem isto, o áudio falha em
-      // silêncio — a pessoa não ouve nada e não há nenhum aviso.
-      const playPromise = audioRef.current.play();
-      if (playPromise) {
-        playPromise.catch(() => setAudioBlocked(true));
-      }
-    }
-  }, [remoteStream]);
-
-  function retryPlay() {
-    if (audioRef.current) {
-      audioRef.current.play().then(
-        () => setAudioBlocked(false),
-        () => setAudioBlocked(true)
-      );
-    }
-  }
+  const [startTs, setStartTs] = useState<number | null>(null);
 
   // Enquanto o som estiver bloqueado, qualquer toque no ecrã (não só no
   // botão) conta como gesto do utilizador para o navegador — por isso
   // aproveitamos o primeiro toque em qualquer lado para tentar destravar
   // sozinho, sem obrigar a pessoa a encontrar o botão certo.
   useEffect(() => {
-    if (!audioBlocked) return;
+    if (!audioBlocked || !onRetryAudio) return;
     function onFirstTouch() {
-      retryPlay();
+      onRetryAudio!();
     }
     document.addEventListener("pointerdown", onFirstTouch, { once: true });
     return () => document.removeEventListener("pointerdown", onFirstTouch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioBlocked]);
+  }, [audioBlocked, onRetryAudio]);
 
   useEffect(() => {
-    if (status === "connected" && startRef.current === null) {
-      startRef.current = Date.now();
+    if (status === "connected" && startTs === null) {
+      const now = Date.now();
+      setStartTs(now);
       const interval = setInterval(() => {
-        setSeconds(Math.floor((Date.now() - (startRef.current as number)) / 1000));
+        setSeconds(Math.floor((Date.now() - now) / 1000));
       }, 1000);
       return () => clearInterval(interval);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   if (status === "failed" && errorMessage) {
@@ -156,7 +139,7 @@ export default function AudioCall({
     <div className="card call-card call-surface">
       {audioBlocked && (
         <button
-          onClick={retryPlay}
+          onClick={onRetryAudio}
           type="button"
           className="w-full mb-4 py-3 px-4 bg-maroon-600 text-white text-[0.85rem] font-semibold animate-pulse text-center"
         >
@@ -188,7 +171,6 @@ export default function AudioCall({
           Encerrar chamada
         </button>
       </div>
-      <audio ref={audioRef} autoPlay className="hidden" />
     </div>
   );
 }

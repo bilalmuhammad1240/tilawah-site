@@ -207,7 +207,6 @@ export default function SessionPage({ params }: { params: { id: string } }) {
           peerName={peerName}
           ratePerMinute={session.rate_per_minute}
           status="ringing"
-          remoteStream={null}
           errorMessage={null}
           onAccept={handleAcceptIncomingCall}
           onReject={handleRejectIncomingCall}
@@ -224,10 +223,11 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         peerName={peerName}
         ratePerMinute={session.rate_per_minute}
         status={webrtc.status}
-        remoteStream={webrtc.remoteStream}
         errorMessage={webrtc.errorMessage}
         isMuted={webrtc.isMuted}
         onToggleMute={webrtc.toggleMute}
+        audioBlocked={webrtc.audioBlocked}
+        onRetryAudio={webrtc.retryAudio}
         onCancel={() => handleEndCall(0)}
         onEnd={handleEndCall}
       />

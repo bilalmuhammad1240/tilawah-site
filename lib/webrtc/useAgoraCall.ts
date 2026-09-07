@@ -40,12 +40,13 @@ async function fetchToken(channelName: string, uid: number): Promise<string | nu
 export function useAgoraCall(myUserId: string | null) {
   const supabase = createClient();
   const [status, setStatus] = useState<CallStatus>("idle");
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
+  const remoteAudioTrackRef = useRef<any>(null);
   const callChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -82,15 +83,27 @@ export function useAgoraCall(myUserId: string | null) {
       } catch {}
       micTrackRef.current = null;
     }
+    remoteAudioTrackRef.current = null;
     if (clientRef.current) {
       try {
         clientRef.current.leave();
       } catch {}
       clientRef.current = null;
     }
-    setRemoteStream(null);
     setIsMuted(false);
+    setAudioBlocked(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const retryAudio = useCallback(() => {
+    if (remoteAudioTrackRef.current) {
+      try {
+        remoteAudioTrackRef.current.play();
+        setAudioBlocked(false);
+      } catch {
+        setAudioBlocked(true);
+      }
+    }
   }, []);
 
   const toggleMute = useCallback(async () => {
@@ -112,11 +125,22 @@ export function useAgoraCall(myUserId: string | null) {
     const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
     clientRef.current = client;
 
+    // A Agora gere o próprio elemento de áudio internamente quando se
+    // chama track.play() — isto é o caminho oficial e é o que garante
+    // que o cancelamento de eco do microfone sabe corretamente o que
+    // está a ser reproduzido. Construir manualmente um <audio> a partir
+    // do MediaStreamTrack (como fazíamos antes) contorna essa peça,
+    // o que pode ter contribuído para o eco/som metálico reportado.
+    AgoraRTC.onAudioAutoplayFailed = () => {
+      setAudioBlocked(true);
+    };
+
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio" && user.audioTrack) {
         if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
-        setRemoteStream(new MediaStream([user.audioTrack.getMediaStreamTrack()]));
+        remoteAudioTrackRef.current = user.audioTrack;
+        user.audioTrack.play();
         setStatus("connected");
         logDiagnostic(callId, role, "remote_audio_started", {});
       }
@@ -276,5 +300,17 @@ export function useAgoraCall(myUserId: string | null) {
     await supabase.from("calls").update({ status: "rejected" }).eq("id", callId);
   }, []);
 
-  return { status, remoteStream, errorMessage, isMuted, toggleMute, startCall, acceptCall, endCall, rejectCall, cleanup };
+  return {
+    status,
+    errorMessage,
+    isMuted,
+    toggleMute,
+    audioBlocked,
+    retryAudio,
+    startCall,
+    acceptCall,
+    endCall,
+    rejectCall,
+    cleanup,
+  };
 }
