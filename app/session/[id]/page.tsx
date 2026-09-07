@@ -226,6 +226,8 @@ export default function SessionPage({ params }: { params: { id: string } }) {
         status={webrtc.status}
         remoteStream={webrtc.remoteStream}
         errorMessage={webrtc.errorMessage}
+        isMuted={webrtc.isMuted}
+        onToggleMute={webrtc.toggleMute}
         onCancel={() => handleEndCall(0)}
         onEnd={handleEndCall}
       />

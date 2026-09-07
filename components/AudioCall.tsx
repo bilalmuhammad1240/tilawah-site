@@ -22,6 +22,8 @@ type Props = {
   remoteStream: MediaStream | null;
   errorMessage: string | null;
   mode: "outgoing" | "incoming" | "in-call";
+  isMuted?: boolean;
+  onToggleMute?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
   onCancel?: () => void;
@@ -35,6 +37,8 @@ export default function AudioCall({
   remoteStream,
   errorMessage,
   mode,
+  isMuted,
+  onToggleMute,
   onAccept,
   onReject,
   onCancel,
@@ -174,9 +178,16 @@ export default function AudioCall({
           "Chamada gratuita entre alunos"
         )}
       </div>
-      <button className="btn btn-danger" onClick={() => onEnd(seconds)}>
-        Encerrar chamada
-      </button>
+      <div className="flex gap-3">
+        {onToggleMute && (
+          <button className={`btn !mt-0 ${isMuted ? "btn-gold" : "btn-ghost"}`} onClick={onToggleMute} type="button">
+            {isMuted ? "🔇 Silenciado" : "🎙️ Silenciar"}
+          </button>
+        )}
+        <button className="btn btn-danger !mt-0" onClick={() => onEnd(seconds)}>
+          Encerrar chamada
+        </button>
+      </div>
       <audio ref={audioRef} autoPlay className="hidden" />
     </div>
   );

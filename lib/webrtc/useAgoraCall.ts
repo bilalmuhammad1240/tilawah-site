@@ -42,6 +42,7 @@ export function useAgoraCall(myUserId: string | null) {
   const [status, setStatus] = useState<CallStatus>("idle");
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const micTrackRef = useRef<IMicrophoneAudioTrack | null>(null);
@@ -88,8 +89,16 @@ export function useAgoraCall(myUserId: string | null) {
       clientRef.current = null;
     }
     setRemoteStream(null);
+    setIsMuted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const toggleMute = useCallback(async () => {
+    if (!micTrackRef.current) return;
+    const next = !isMuted;
+    await micTrackRef.current.setMuted(next);
+    setIsMuted(next);
+  }, [isMuted]);
 
   async function joinChannel(channelName: string, callId: string, role: "caller" | "callee") {
     const uid = randomUid();
@@ -262,5 +271,5 @@ export function useAgoraCall(myUserId: string | null) {
     await supabase.from("calls").update({ status: "rejected" }).eq("id", callId);
   }, []);
 
-  return { status, remoteStream, errorMessage, startCall, acceptCall, endCall, rejectCall, cleanup };
+  return { status, remoteStream, errorMessage, isMuted, toggleMute, startCall, acceptCall, endCall, rejectCall, cleanup };
 }
