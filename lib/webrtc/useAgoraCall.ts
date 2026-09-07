@@ -125,7 +125,11 @@ export function useAgoraCall(myUserId: string | null) {
 
     try {
       await client.join(APP_ID, channelName, token, uid);
-      const micTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      const micTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        AEC: true, // cancelamento de eco acústico
+        AGC: true, // controlo automático de ganho
+        ANS: true, // supressão automática de ruído
+      });
       micTrackRef.current = micTrack;
       await client.publish([micTrack]);
       logDiagnostic(callId, role, "joined_channel", { uid });
