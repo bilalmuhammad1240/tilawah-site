@@ -3,6 +3,13 @@
 import { useState, useRef } from "react";
 import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack } from "agora-rtc-sdk-ng";
 
+// Evita a pré-geração estática desta página no build: o SDK da Agora
+// acede a `window` assim que é importado, o que rebenta o processo de
+// build (Node.js, sem `window`) se o Next.js tentar gerar HTML estático
+// à partida. As outras páginas que usam a Agora (ex.: /session/[id])
+// não sofrem disto por serem rotas dinâmicas, nunca pré-geradas.
+export const dynamic = "force-dynamic";
+
 // Página de teste isolada — sem Supabase, sem sessões, sem lógica de
 // negócio nenhuma. Só entra num canal fixo e fala. Serve só para
 // isolar se o eco/som metálico é físico (hardware dos telemóveis,
