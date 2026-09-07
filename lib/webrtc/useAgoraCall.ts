@@ -138,6 +138,11 @@ export function useAgoraCall(myUserId: string | null) {
         AEC: true, // cancelamento de eco acústico
         AGC: true, // controlo automático de ganho
         ANS: true, // supressão automática de ruído
+        // Por omissão a Agora usa "music_standard" (32 Kbps) — baixo
+        // demais para se perceber bem nuances de pronúncia (makharij).
+        // "high_quality" sobe para 128 Kbps mono (~4x mais dados usados
+        // por minuto, mas ainda assim muito mais leve que vídeo).
+        encoderConfig: "high_quality",
       });
       micTrackRef.current = micTrack;
       await client.publish([micTrack]);
